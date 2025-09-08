@@ -1,0 +1,2 @@
+survos_lingua:
+  api_key: '%env(SURVOS_LINGUA_API_KEY)%'
