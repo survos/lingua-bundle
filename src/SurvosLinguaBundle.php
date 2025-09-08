@@ -2,6 +2,9 @@
 
 namespace Survos\SurvosLinguaBundle;
 
+use Survos\LinguaBundle\Command\LinguaDemoCommand;
+use Survos\LinguaBundle\Controller\LinguaWebhookController;
+use Survos\LinguaBundle\Service\LinguaClient;
 use Survos\SurvosLinguaBundle\Command\LinguaCommand;
 use Survos\SurvosLinguaBundle\Controller\LinguaController;
 use Survos\SurvosLinguaBundle\Service\LinguaService;
@@ -16,8 +19,8 @@ class SurvosLinguaBundle extends AbstractBundle
 	{
 		$definition->rootNode()
 		    ->children()
-            ->scalarNode('server')->defaultValue('%env(default:https://translation-server.survos.com:SURVOS_LINGUA_SERVER)%')->end()
-            ->scalarNode('api_key')->defaultValue('%env(default::SURVOS_LINGUA_API_KEY)%')->end()
+            ->scalarNode('server')->defaultValue('%env(default:https://translation-server.survos.com:LINGUA_BASE_URI)%')->end()
+            ->scalarNode('api_key')->defaultValue('%env(default::LINGUA_API_KEY)%')->end()
 		    ->end();
 	}
 
@@ -26,14 +29,23 @@ class SurvosLinguaBundle extends AbstractBundle
 	{
 		$services = $container->services();
 
-		        $services->set(LinguaService::class)
-		            ->arg('$config', $config)
-		            ->public();
+        $services->set(LinguaClient::class)
+            ->autowire()
+            ->autoconfigure()
+            ->arg('$config', $config)
+            ->public();
 
-		        $services->set(LinguaController::class)
-		            ->tag('controller.service_arguments');
-
-		        $services->set(LinguaCommand::class)
+        foreach ([LinguaController::class, LinguaWebhookController::class] as $class) {
+            $services->set(LinguaController::class)
+                ->autoconfigure(true)
+                ->autowire(true)
+                ->public()
+                ->tag('controller.service_arguments');
+        }
+		        $services->set(LinguaDemoCommand::class)
+                    ->autoconfigure(true)
+                    ->autowire(true)
+                    ->public()
 		            ->tag('console.command');
 	}
 }
