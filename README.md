@@ -23,7 +23,7 @@ If you're using Symfony Flex, the bundle will be automatically registered. Other
 ```php
 return [
     // ...
-    Survos\SurvosLinguaBundle\SurvosLinguaBundle::class => ['all' => true],
+    Survos\LinguaBundle\SurvosLinguaBundle::class => ['all' => true],
 ];
 ```
 

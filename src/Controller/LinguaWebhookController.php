@@ -8,7 +8,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Routing\Attribute\Route;
 
 /**
  * Optional webhook endpoint for the translation-server to POST results back.
@@ -22,7 +22,7 @@ final class LinguaWebhookController extends AbstractController
     ) {}
 
     #[Route(path: '/_lingua/webhook', name: 'lingua_webhook', methods: ['POST'])]
-    public function __invoke(Request $request): JsonResponse
+    public function webhook(Request $request): JsonResponse
     {
         if ($this->webhookKey) {
             $key = $request->headers->get('X-Api-Key');

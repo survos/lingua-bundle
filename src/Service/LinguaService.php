@@ -1,6 +1,6 @@
 <?php
 
-namespace Survos\SurvosLinguaBundle\Service;
+namespace Survos\LinguaBundle\Service;
 
 class LinguaService
 {

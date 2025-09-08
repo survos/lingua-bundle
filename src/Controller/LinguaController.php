@@ -1,8 +1,8 @@
 <?php
 
-namespace Survos\SurvosLinguaBundle\Controller;
+namespace Survos\LinguaBundle\Controller;
 
-use Survos\SurvosLinguaBundle\Service\LinguaService;
+use Survos\LinguaBundle\Service\LinguaService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;

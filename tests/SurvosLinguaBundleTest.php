@@ -1,9 +1,9 @@
 <?php
 
-namespace Survos\SurvosLinguaBundle\Tests;
+namespace Survos\LinguaBundle\Tests;
 
 use PHPUnit\Framework\TestCase;
-use Survos\SurvosLinguaBundle\SurvosLinguaBundle;
+use Survos\LinguaBundle\SurvosLinguaBundle;
 
 class SurvosLinguaBundleTest extends \TestCase
 {

@@ -30,12 +30,12 @@
     },
     "autoload": {
         "psr-4": {
-            "Survos\\SurvosLinguaBundle\\": "src/"
+            "Survos\\LinguaBundle\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Survos\\SurvosLinguaBundle\\Tests\\": "tests/"
+            "Survos\\LinguaBundle\\Tests\\": "tests/"
         }
     }
 }

@@ -1,6 +1,6 @@
 <?php
 
-namespace Survos\SurvosLinguaBundle\Twig\Extension;
+namespace Survos\LinguaBundle\Twig\Extension;
 
 use Twig\Extension\AbstractExtension;
 use Twig\TwigFilter;

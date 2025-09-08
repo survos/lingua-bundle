@@ -1,8 +1,8 @@
 <?php
 
-namespace Survos\SurvosLinguaBundle\Command;
+namespace Survos\LinguaBundle\Command;
 
-use Survos\SurvosLinguaBundle\Service\LinguaService;
+use Survos\LinguaBundle\Service\LinguaService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
