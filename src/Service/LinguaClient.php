@@ -20,13 +20,14 @@ final class LinguaClient
     public function __construct(
         private readonly HttpClientInterface $http,
         private readonly LoggerInterface $logger,
-        #[Autowire(param: 'lingua.base_uri')] private readonly string $baseUri,
-        #[Autowire(param: 'lingua.api_token')] private readonly ?string $apiToken = null,
-        #[Autowire(param: 'lingua.timeout')] private readonly int $timeout = 10,
-        #[Autowire(param: 'lingua.proxy')] private readonly ?string $proxy = null,
+        #[Autowire(param: 'lingua.config')] private array $config = [],
     ) {}
 
-    public function baseUri(): string { return rtrim($this->baseUri, '/'); }
+    // === Property hooks for config access ===
+    public string $baseUri { get => rtrim($this->config['server'] ?? 'https://translation-server.survos.com', '/'); }
+    public ?string $apiToken { get => $this->config['api_key'] ?? null; }
+    public ?string $proxy { get => $this->config['proxy'] ?? (str_contains($this->baseUri, '.wip') ? '127.0.0.1:7080' : null); }
+    public int $timeout { get => (int)($this->config['timeout'] ?? 10); }
 
     /** Deterministic code for a source string + target locale (compat with your server). */
     public static function calcHash(string $string, string $locale): string
@@ -45,7 +46,7 @@ final class LinguaClient
     /** GET /source/{hash}.json (handy for debugging/backfills). */
     public function getSource(string $hash): array
     {
-        $res = $this->http->request('GET', $this->baseUri().self::ROUTE_SOURCE.'/'.$hash.'.json', [
+        $res = $this->http->request('GET', $this->baseUri.self::ROUTE_SOURCE.'/'.$hash.'.json', [
             'timeout' => $this->timeout,
             'proxy'   => $this->proxy,
             'headers' => $this->headers(),
@@ -57,21 +58,12 @@ final class LinguaClient
     /** Submit a batch; server decides sync vs async based on payload/flags. */
     public function requestBatch(BatchRequest $req): BatchResponse
     {
-        $res = $this->http->request('POST', $this->baseUri().self::ROUTE_BATCH, [
+        $res = $this->http->request('POST', $this->baseUri.self::ROUTE_BATCH, [
             'timeout' => $this->timeout,
             'proxy'   => $this->proxy,
             'headers' => $this->headers(json: true),
-            'json'    => [
-                'texts'      => $req->texts,
-                'source'     => $req->source,
-                'target'     => $req->target,
-                'html'       => $req->html,
-                'extra'      => $req->extra,
-                'enqueue'    => $req->enqueue,
-                'force'      => $req->force,
-                'callbackUrl'=> $req->callbackUrl,
-                'transport'  => $req->transport,
-            ],
+            // Thanks to JsonSerializable on BatchRequest, send the object directly.
+            'json'    => $req,
         ]);
 
         $status = $res->getStatusCode();
@@ -83,6 +75,7 @@ final class LinguaClient
 
         return new BatchResponse(
             status: $data['status'] ?? ($status === 200 ? 'ok' : 'error'),
+            sourceItems: $data['items'] ?? null,
             items: isset($data['items']) ? $this->denormItems($data['items']) : [],
             jobId: $data['jobId'] ?? null,
             message: $data['message'] ?? null,
@@ -92,7 +85,7 @@ final class LinguaClient
     /** Poll a job by id (server: /job/{id}.json). */
     public function getJobStatus(string $jobId): JobStatus
     {
-        $res  = $this->http->request('GET', $this->baseUri().self::ROUTE_JOB.'/'.$jobId.'.json', [
+        $res  = $this->http->request('GET', $this->baseUri.self::ROUTE_JOB.'/'.$jobId.'.json', [
             'timeout' => $this->timeout,
             'proxy'   => $this->proxy,
             'headers' => $this->headers(),
@@ -108,12 +101,21 @@ final class LinguaClient
         );
     }
 
-    /** Optional helper for simple sync use-case: translate now, return best-effort results. */
-    public function translateNow(string $text, string $to, ?string $from = null, array $extra = []): string
+    /** One-off translation; returns a TranslationItem (with cached flag) for a single text. */
+    public function translateNow(string $text, string $to, ?string $from = null, array $extra = [], bool $noTranslate = false): TranslationItem
     {
-        $req = new BatchRequest(texts: [$text], source: $from ?? 'auto', target: $to, html: false, extra: $extra, enqueue: false);
+        $req = new BatchRequest(
+            texts: [$text],
+            source: $from ?? 'auto',
+            target: is_array($to) ? $to: [$to],
+            html: false,
+            insertNewStrings: !$noTranslate,
+            extra: $extra,
+            enqueue: false,
+            force: false,
+        );
         $res = $this->requestBatch($req);
-        return $res->items[0]->text ?? $text;
+        return $res->items[0] ?? new TranslationItem(hash: self::calcHash($text, $to), source: $from ?? 'auto', target: $to, text: $text, engine: null, cached: false, meta: []);
     }
 
     /** @param list<array<string,mixed>> $rows */
@@ -121,6 +123,7 @@ final class LinguaClient
     {
         $items = [];
         foreach ($rows as $r) {
+
             $items[] = new TranslationItem(
                 hash: (string)($r['hash'] ?? ''),
                 source: (string)($r['source'] ?? ''),
@@ -137,9 +140,7 @@ final class LinguaClient
     /** Default headers incl. API key. */
     private function headers(bool $json = false): array
     {
-        $h = [
-            'Accept' => 'application/json',
-        ];
+        $h = [ 'Accept' => 'application/json' ];
         if ($json) {
             $h['Content-Type'] = 'application/json';
         }

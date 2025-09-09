@@ -10,10 +10,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
 
-/**
- * Optional webhook endpoint for the translation-server to POST results back.
- * Validates a shared key via X-Api-Key.
- */
+/** Optional webhook endpoint for clients to receive results back from the server. */
 final class LinguaWebhookController extends AbstractController
 {
     public function __construct(
@@ -22,7 +19,7 @@ final class LinguaWebhookController extends AbstractController
     ) {}
 
     #[Route(path: '/_lingua/webhook', name: 'lingua_webhook', methods: ['POST'])]
-    public function webhook(Request $request): JsonResponse
+    public function receive(Request $request): JsonResponse
     {
         if ($this->webhookKey) {
             $key = $request->headers->get('X-Api-Key');
@@ -32,7 +29,6 @@ final class LinguaWebhookController extends AbstractController
         }
 
         $payload = json_decode($request->getContent(), true) ?? [];
-        // You can dispatch a Symfony Event here for app-specific handling.
         $this->logger->info('Lingua webhook received', ['payload' => $payload]);
 
         return $this->json(['status' => 'ok']);

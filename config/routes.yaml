@@ -1,0 +1,6 @@
+survos_pixie:
+  prefix: /lingua
+  type: attribute
+  resource:
+    path: '@SurvosLinguaBundle/src/Controller/'
+    namespace: Survos\LinguaBundle\Controller

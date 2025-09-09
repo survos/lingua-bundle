@@ -1,0 +1,97 @@
+  {% extends 'base.html.twig' %}
+
+{% block body %}
+  <div class="container my-4">
+    <h1>Lingua Sandbox</h1>
+
+    <form method="post" action="{{ path('lingua_sandbox') }}" class="mb-3">
+      <div class="row g-3 mb-3">
+        <div class="col-md-3">
+          <label class="form-label">Source</label>
+          <input class="form-control" name="source" value="{{ defaults.source }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Target(s)</label>
+          <input class="form-control" name="target" value="{{ defaults.target }}" placeholder="es or es,fr,pt">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Engine</label>
+          <input class="form-control" name="engine" value="{{ defaults.engine }}" placeholder="libre, deepl, ...">
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Texts (one per line)</label>
+        <textarea class="form-control" name="texts" rows="6">{{ defaults.textsRaw }}</textarea>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-md-2 form-check">
+          <input class="form-check-input" type="checkbox" id="html" name="html" value="1" {% if defaults.html %}checked{% endif %}>
+          <label for="html" class="form-check-label">HTML</label>
+        </div>
+        <div class="col-md-2 form-check">
+          <input class="form-check-input" type="checkbox" id="enqueue" name="enqueue" value="1" {% if defaults.enqueue %}checked{% endif %}>
+          <label for="enqueue" class="form-check-label">Enqueue</label>
+        </div>
+        <div class="col-md-2 form-check">
+          <input class="form-check-input" type="checkbox" id="force" name="force" value="1" {% if defaults.force %}checked{% endif %}>
+          <label for="force" class="form-check-label">Force</label>
+        </div>
+        <div class="col-md-3 form-check">
+          <input class="form-check-input" type="checkbox" id="noTranslate" name="noTranslate" value="1" {% if defaults.noTranslate %}checked{% endif %}>
+          <label for="noTranslate" class="form-check-label">No-translate (lookup only)</label>
+        </div>
+        <div class="col-md-3 form-check">
+          <input class="form-check-input" type="checkbox" id="now" name="now" value="1" {% if defaults.now %}checked{% endif %}>
+          <label for="now" class="form-check-label">NOW (first line only)</label>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Send</button>
+    </form>
+
+    {% if result is defined and result %}
+      <h2 class="mt-4">Result</h2>
+
+      {% if result.status %}
+        <p><strong>Status:</strong> {{ result.status }}</p>
+      {% endif %}
+      {% if result.jobId %}
+        <p><strong>Job ID:</strong> {{ result.jobId }}</p>
+      {% endif %}
+
+      {% if result.items is defined and result.items %}
+        <div class="table-responsive">
+          <table class="table table-sm table-striped align-middle">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Target</th>
+                <th>Text</th>
+                <th>Cached</th>
+                <th>Engine</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for i in result.items %}
+                <tr>
+                  <td>{{ i.source }}</td>
+                  <td>{{ i.target }}</td>
+                  <td style="white-space: pre-wrap">{{ i.text }}</td>
+                  <td>{{ i.cached ? 'yes' : 'no' }}</td>
+                  <td>{{ i.engine ?? '' }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
+      <details class="mt-3">
+        <summary>Raw JSON</summary>
+        <pre>{{ result|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+      </details>
+    {% endif %}
+  </div>
+{% endblock %}

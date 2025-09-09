@@ -11,6 +11,9 @@ final class BatchResponse
      */
     public function __construct(
         public readonly string $status,              // "queued" | "ok" | "partial" | "error"
+        // in str format, with an array of translations
+        public readonly ?array $sourceItems=[],
+        // an array of translated items, one string per locale. @todo
         public readonly array $items = [],           // when results exist
         public readonly ?string $jobId = null,       // when queued
         public readonly ?string $message = null,
