@@ -19,9 +19,7 @@ final class BatchRequest implements JsonSerializable
         public array $texts,
         #[Assert\NotBlank]
         public string $source,            // e.g. "en" or "auto"
-        public  array $target {
-            set(array|string $value) => is_array($value) ? $value: [$value];
-        },
+        public  array $target,
         public bool $html = false,
         public bool $insertNewStrings = true, // polling-only => false (do not insert new strings)
         public array $extra = [],         // engine hints, domain, formality, etc.

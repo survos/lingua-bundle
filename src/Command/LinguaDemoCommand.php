@@ -19,27 +19,25 @@ final class LinguaDemoCommand
     public function __invoke(
         SymfonyStyle $io,
         #[Argument('Text to translate')] string $text,
-        #[Option('to')] ?string $to = null,
-        #[Option('from')] ?string $from = null,
-        #[Option('engine')] ?string $engine = null,
-        #[Option('now')] ?bool $now = null,               // bypass queue; translate immediately
-        #[Option('no-translate')] ?bool $noTranslate = null, // lookup-only: do not insert new strings
-        #[Option('enqueue')] ?bool $enqueue = null,       // enqueue when not using --now
-        #[Option('force')] ?bool $force = null,
+        #[Option('Target locale(s) (comma-separated).')] ?string $to = null,
+        #[Option('Source locale (or "auto").')] ?string $from = null,
+        #[Option('Engine (e.g. "libre", "deepl").')] ?string $engine = null,
+        #[Option('Translate immediately (no queue).')] ?bool $now = null,
+        #[Option('Lookup-only; do not insert new strings.')] ?bool $noTranslate = null,
+        #[Option('Enqueue if not using --now.')] ?bool $enqueue = null,
+        #[Option('Force re-dispatch even if cached.')] ?bool $force = null,
     ): int {
-        $to = $to ?? 'es';
-        $from = $from ?? 'en';
-        $engine = $engine ?? 'libre';
-        $now = $now ?? false;
-        $noTranslate = $noTranslate ?? false;
-        $enqueue = $enqueue ?? !$now; // default: enqueue unless --now
-        $force = $force ?? false;
+        $to         = $to      ?? 'es';
+        $from       = $from    ?? 'en';
+        $engine     = $engine  ?? 'libre';
+        $now        = $now     ?? false;
+        $noTranslate= $noTranslate ?? false;
+        $enqueue    = $enqueue ?? !$now; // default: enqueue unless --now
+        $force      = $force   ?? false;
 
         if ($now) {
-            // Use translateNow to get cached/fresh info for a single text
             $item = $this->client->translateNow($text, $to, $from, ['engine' => $engine], $noTranslate);
             $io->writeln(($item->cached ? '[cached] ' : '[fresh] ').$item->text);
-            if ($item->cached) { return Command::SUCCESS; }
             return Command::SUCCESS;
         }
 
@@ -56,16 +54,18 @@ final class LinguaDemoCommand
         );
         $res = $this->client->requestBatch($req);
 
-        if ($res->status === 'queued' && $res->jobId) {
-            $io->success(sprintf('Queued job %s', $res->jobId));
-            return Command::SUCCESS;
+        if ($res->error) {
+            $io->error($res->error);
+            return Command::FAILURE;
+        }
+
+        if ($res->jobId) {
+            $io->success(sprintf('Queued job %s (queued=%d)', $res->jobId, $res->queued));
         }
 
         foreach ($res->items as $item) {
             $io->writeln(sprintf('[%s→%s]%s %s', $item->source, $item->target, $item->cached ? ' [cached]' : '', ' '.$item->text));
         }
-
-        dump($req, $res);
 
         return Command::SUCCESS;
     }

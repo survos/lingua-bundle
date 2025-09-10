@@ -17,7 +17,6 @@ final class LinguaSandboxController extends AbstractController
     #[Route('/_lingua/sandbox', name: 'lingua_sandbox', methods: ['GET','POST'])]
     public function sandbox(Request $request): Response
     {
-        // defaults
         $defaults = [
             'source'        => (string)$request->get('source', 'en'),
             'target'        => (string)$request->get('target', 'es'),
@@ -26,8 +25,8 @@ final class LinguaSandboxController extends AbstractController
             'html'          => (bool)$request->get('html', false),
             'enqueue'       => (bool)$request->get('enqueue', false),
             'force'         => (bool)$request->get('force', false),
-            'noTranslate'   => (bool)$request->get('noTranslate', false), // lookup-only
-            'now'           => (bool)$request->get('now', false),         // bypass queue
+            'noTranslate'   => (bool)$request->get('noTranslate', false),
+            'now'           => (bool)$request->get('now', false),
         ];
 
         $result = null;
@@ -37,18 +36,15 @@ final class LinguaSandboxController extends AbstractController
                 array_map('trim', preg_split('/\r?\n/', $defaults['textsRaw']) ?: []),
                 fn($x) => $x !== ''
             ));
-            $targets = str_contains($defaults['target'], ',')
-                ? array_map('trim', explode(',', $defaults['target']))
-                : $defaults['target'];
+            $targets = preg_split('/[,\s]+/', (string)$defaults['target']) ?: [];
 
             if ($defaults['now']) {
-                // one-shot translate/lookup for first line
                 $item = $this->client->translateNow(
                     $texts[0] ?? '',
-                    $defaults['target'],
+                    $targets[0] ?? 'es',
                     $defaults['source'],
                     ['engine' => $defaults['engine']],
-                    $defaults['noTranslate'] // if true, lookup only (no insert)
+                    $defaults['noTranslate']
                 );
                 $result = [
                     'status' => 'ok',
@@ -74,8 +70,10 @@ final class LinguaSandboxController extends AbstractController
                 );
                 $res = $this->client->requestBatch($req);
                 $result = [
-                    'status' => $res->status,
+                    'status' => $res->status ?? 'ok',
                     'jobId'  => $res->jobId,
+                    'queued' => $res->queued,
+                    'error'  => $res->error,
                     'items'  => array_map(static fn($i) => [
                         'source' => $i->source,
                         'target' => $i->target,
@@ -87,7 +85,7 @@ final class LinguaSandboxController extends AbstractController
             }
         }
 
-        return $this->render('@SurvosLingua/lingua/sandbox.html.twig', [
+        return $this->render('@SurvosLinguaBundle/lingua/sandbox.html.twig', [
             'defaults' => $defaults,
             'result'   => $result,
         ]);
