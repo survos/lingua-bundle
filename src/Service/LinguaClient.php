@@ -9,8 +9,10 @@ use Survos\LinguaBundle\Dto\BatchResponse;
 use Survos\LinguaBundle\Dto\JobStatus;
 use Survos\LinguaBundle\Dto\TranslationItem;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
-
+use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Symfony\Component\HttpFoundation\Request as HttpRequest;
 final class LinguaClient
 {
     public const ROUTE_BATCH  = '/batch-translate';
@@ -19,6 +21,7 @@ final class LinguaClient
 
     public function __construct(
         private readonly HttpClientInterface $http,
+        private readonly HttpKernelInterface $httpKernel,
         private readonly LoggerInterface $logger,
         #[Autowire(param: 'lingua.config')] private array $config = [],
     ) {}
@@ -58,7 +61,7 @@ final class LinguaClient
     }
 
     /** Submit a batch; server decides sync vs async based on payload/flags. */
-    public function requestBatch(BatchRequest $req): BatchResponse
+    public function requestBatch(BatchRequest $req, ?Request $request=null): BatchResponse
     {
         $params = [
             'timeout'  => $this->timeout,
@@ -66,6 +69,25 @@ final class LinguaClient
             'headers'  => $this->headers(json: true),
             'json'     => $req, // BatchRequest implements JsonSerializable
         ];
+
+        // don't call trans from trans!
+        if ($this->baseUri ===  $request->getSchemeAndHttpHost()) {
+            $sub = HttpRequest::create(
+                LinguaClient::ROUTE_BATCH,
+                'POST',
+                server: ['CONTENT_TYPE' => 'application/json'],
+                content: json_encode($req, JSON_THROW_ON_ERROR)
+            );
+
+            $response = $this->httpKernel->handle($sub, HttpKernelInterface::SUB_REQUEST);
+            try {
+                $data = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
+            } catch (\Throwable $exception) {
+                dd($response->getContent());
+            }
+            dd($data);
+//            return new BatchResponse();
+        }
 
         $res     = $this->http->request('POST', $this->baseUri.self::ROUTE_BATCH, $params);
         $status  = $res->getStatusCode();

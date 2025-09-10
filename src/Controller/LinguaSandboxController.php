@@ -68,7 +68,7 @@ final class LinguaSandboxController extends AbstractController
                     force: $defaults['force'],
                     engine: $defaults['engine']
                 );
-                $res = $this->client->requestBatch($req);
+                $res = $this->client->requestBatch($req, $request);
                 $result = [
                     'status' => $res->status ?? 'ok',
                     'jobId'  => $res->jobId,
@@ -85,7 +85,7 @@ final class LinguaSandboxController extends AbstractController
             }
         }
 
-        return $this->render('@SurvosLinguaBundle/lingua/sandbox.html.twig', [
+        return $this->render('@SurvosLingua/lingua/sandbox.html.twig', [
             'defaults' => $defaults,
             'result'   => $result,
         ]);

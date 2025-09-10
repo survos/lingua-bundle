@@ -6,6 +6,7 @@ namespace Survos\LinguaBundle;
 use Survos\LinguaBundle\Command\LinguaDemoCommand;
 use Survos\LinguaBundle\Command\LinguaPullBabelCommand;
 use Survos\LinguaBundle\Command\LinguaPushBabelCommand;
+use Survos\LinguaBundle\Command\LinguaStatusCommand;
 use Survos\LinguaBundle\Command\LinguaSyncBabelCommand;
 use Survos\LinguaBundle\Controller\LinguaController;
 use Survos\LinguaBundle\Controller\LinguaSandboxController;
@@ -38,7 +39,8 @@ final class SurvosLinguaBundle extends AbstractBundle
         }
 
         // Commands
-        foreach ([LinguaDemoCommand::class, LinguaPushBabelCommand::class, LinguaPullBabelCommand::class, LinguaSyncBabelCommand::class] as $commandClass) {
+        foreach ([LinguaDemoCommand::class,
+                     LinguaPushBabelCommand::class, LinguaPullBabelCommand::class, LinguaSyncBabelCommand::class] as $commandClass) {
             $builder->register($commandClass)
                 ->setAutowired(true)
                 ->setAutoconfigured(true)
