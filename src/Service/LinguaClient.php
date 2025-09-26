@@ -8,8 +8,10 @@ use Survos\LinguaBundle\Dto\BatchRequest;
 use Survos\LinguaBundle\Dto\BatchResponse;
 use Survos\LinguaBundle\Dto\JobStatus;
 use Survos\LinguaBundle\Dto\TranslationItem;
+use Survos\LinguaBundle\Util\HashUtil;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\HttpFoundation\Request as HttpRequest;
@@ -22,6 +24,7 @@ final class LinguaClient
     public function __construct(
         private readonly HttpClientInterface $http,
         private readonly HttpKernelInterface $httpKernel,
+        private readonly UrlGeneratorInterface $urlGenerator,
         private readonly LoggerInterface $logger,
         #[Autowire(param: 'lingua.config')] private array $config = [],
     ) {}
@@ -33,18 +36,16 @@ final class LinguaClient
     public int $timeout { get => (int)($this->config['timeout'] ?? 10); }
 
     /** Deterministic code for a source string + target locale (compat with your server). */
+    #[\Deprecated("using HashUtil::calcSourceKey()")]
     public static function calcHash(string $string, string $locale): string
     {
-        \assert(\strlen($locale) >= 2, "Invalid Locale: $locale");
-        $h = \hash('xxh3', $string);
-        // keep server-compatible splice of locale into hash early
-        return \substr_replace($h, \strtoupper(substr($locale, 0, 2)), 3, 0);
+        return HashUtil::calcSourceKey($string, $locale);
     }
 
     /** @param list<string> $texts */
     public static function textToCodes(array $texts, string $target): array
     {
-        return \array_map(fn($s) => self::calcHash($s, $target), $texts);
+        return \array_map(fn($s) => HashUtil::calcSourceKey($s, $target), $texts);
     }
 
     /** GET /source/{hash}.json (handy for debugging/backfills). */
@@ -61,6 +62,21 @@ final class LinguaClient
     }
 
     /** Submit a batch; server decides sync vs async based on payload/flags. */
+    public function requestTranslations(BatchRequest $req, ?Request $request=null): ?BatchResponse
+    {
+
+        $params = [
+            'timeout'  => $this->timeout,
+            'proxy'    => $this->proxy,
+            'headers'  => $this->headers(json: true),
+            'json'     => $req, // BatchRequest implements JsonSerializable
+        ];
+        $url = $this->urlGenerator->generate('_api_/targets.json_get_collection');
+        return null;
+
+    }
+
+    /** Submit a batch; server decides sync vs async based on payload/flags. */
     public function requestBatch(BatchRequest $req, ?Request $request=null): BatchResponse
     {
         $params = [
@@ -71,7 +87,7 @@ final class LinguaClient
         ];
 
         // don't call trans from trans!
-        if ($this->baseUri ===  $request->getSchemeAndHttpHost()) {
+        if ($request && ($this->baseUri ===  $request->getSchemeAndHttpHost())) {
             $sub = HttpRequest::create(
                 LinguaClient::ROUTE_BATCH,
                 'POST',
@@ -83,18 +99,26 @@ final class LinguaClient
             try {
                 $data = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
             } catch (\Throwable $exception) {
+                file_put_contents('x.html', $response->getContent());
+                dd("see x.html");
                 dd($response->getContent());
             }
-            dd($data);
 //            return new BatchResponse();
+        } else {
+            $response     = $this->http->request('POST', $this->baseUri.self::ROUTE_BATCH, $params);
         }
+        $status  = $response->getStatusCode();
+        if ($status !== 200) {
+            dd($status, $params);
+        }
+        $data = $response->toArray(true);
 
-        $res     = $this->http->request('POST', $this->baseUri.self::ROUTE_BATCH, $params);
-        $status  = $res->getStatusCode();
-        $content = $res->getContent(false);
-        $data    = json_decode($content, true);
+
+//        $res     = $this->http->request('POST', $this->baseUri.self::ROUTE_BATCH, $params);
+//        $content = $res->getContent(false);
+//        $data    = json_decode($content, true);
         if (!\is_array($data)) {
-            $this->logger->error('Lingua batch non-JSON response', ['status' => $status, 'content' => $content]);
+            $this->logger->error('Lingua batch non-JSON response', ['status' => $status, 'content' => $response->getContent()]);
             return new BatchResponse(status: 'error', error: 'Non-JSON response from server', message: $content);
         }
 
@@ -113,7 +137,8 @@ final class LinguaClient
 
         // Items may be on either level
         $itemsRaw   = $top['items'] ?? $resp['items'] ?? null;
-        $items      = is_array($itemsRaw) ? $this->denormItems($itemsRaw) : [];
+//        dd($itemsRaw, $data);
+        $items      = $itemsRaw; // $response['items']; // is_array($itemsRaw) ? $this->denormItems($itemsRaw) : [];
 
         if ($status !== 200 || $error) {
             $this->logger->warning('Lingua batch returned status or error', [
@@ -168,8 +193,12 @@ final class LinguaClient
             force: false,
         );
         $res = $this->requestBatch($req);
+        // debatable!
+
+        dd($res);
+        // this should really be StrTranslation, this is confusing
         return $res->items[0] ?? new TranslationItem(
-            hash: self::calcHash($text, is_array($to) ? ($to[0] ?? 'xx') : $to),
+            hash: HashUtil::calcSourceKey($text, is_array($to) ? ($to[0] ?? 'xx') : $to),
             source: $from ?? 'auto',
             target: is_array($to) ? ($to[0] ?? 'xx') : $to,
             text: $text,

@@ -11,6 +11,7 @@ use Survos\LinguaBundle\Command\LinguaSyncBabelCommand;
 use Survos\LinguaBundle\Controller\LinguaController;
 use Survos\LinguaBundle\Controller\LinguaSandboxController;
 use Survos\LinguaBundle\Controller\LinguaWebhookController;
+use Survos\LinguaBundle\Service\ApiPlatformDataFetcher;
 use Survos\LinguaBundle\Service\LinguaClient;
 use Survos\LinguaBundle\Twig\Extension\LinguaExtension;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -28,6 +29,12 @@ final class SurvosLinguaBundle extends AbstractBundle
             ->setAutoconfigured(true)
             ->setArgument('$config', $config)
             ->setPublic(true);
+
+        foreach ([ApiPlatformDataFetcher::class] as $class) {
+            $builder->autowire($class)
+                ->setAutoconfigured(true)
+                ->setPublic(true);
+        }
 
         // Controllers
         foreach ([LinguaController::class, LinguaSandboxController::class, LinguaWebhookController::class] as $controllerClass) {

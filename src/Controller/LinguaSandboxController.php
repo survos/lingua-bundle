@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Controller;
 
+use App\Controller\ApiController;
 use Survos\LinguaBundle\Dto\BatchRequest;
 use Survos\LinguaBundle\Service\LinguaClient;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -12,7 +13,10 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class LinguaSandboxController extends AbstractController
 {
-    public function __construct(private readonly LinguaClient $client) {}
+    public function __construct(
+        private readonly LinguaClient $client,
+        private ?ApiController $apiController,
+    ) {}
 
     #[Route('/_lingua/sandbox', name: 'lingua_sandbox', methods: ['GET','POST'])]
     public function sandbox(Request $request): Response
@@ -68,19 +72,24 @@ final class LinguaSandboxController extends AbstractController
                     force: $defaults['force'],
                     engine: $defaults['engine']
                 );
+                if (class_exists(ApiController::class)) {
+                    $res = $this->apiController->batchRequest($req);
+                }
+
                 $res = $this->client->requestBatch($req, $request);
                 $result = [
                     'status' => $res->status ?? 'ok',
                     'jobId'  => $res->jobId,
                     'queued' => $res->queued,
                     'error'  => $res->error,
-                    'items'  => array_map(static fn($i) => [
-                        'source' => $i->source,
-                        'target' => $i->target,
-                        'text'   => $i->text,
-                        'cached' => $i->cached,
-                        'engine' => $i->engine,
-                    ], $res->items),
+                    'items'  => $res->items,
+//                    array_map(static fn($i) => [
+//                        'source' => $i->source,
+//                        'target' => $i->target,
+//                        'text'   => $i->text,
+//                        'cached' => $i->cached,
+//                        'engine' => $i->engine,
+//                    ], $res->items),
                 ];
             }
         }

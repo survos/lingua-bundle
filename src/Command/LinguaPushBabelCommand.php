@@ -64,7 +64,7 @@ final class LinguaPushBabelCommand
             return Command::INVALID;
         }
 
-        $io->title('Lingua PUSH: send ALL source strings to Lingua');
+        $io->title('Lingua PUSH: send ALL source strings to Lingua ' . $this->linguaClient->baseUri);
         $io->writeln('Targets: <info>'.implode(', ', $targetLocales).'</info>');
         if ($engine) $io->writeln('Engine: <info>'.$engine.'</info>');
         $io->writeln('Batch: <info>'.$batch.'</info>');
@@ -103,6 +103,7 @@ final class LinguaPushBabelCommand
             $total++;
 
             if ($countsBySrc[$srcLocale] >= $batch) {
+                dump($textsBySrc[$srcLocale]);
                 $r = $this->sendBatch($io, $srcLocale, $targetLocales, $textsBySrc[$srcLocale], $engine, $enqueue, $force, $showServer);
                 $batches++;
 

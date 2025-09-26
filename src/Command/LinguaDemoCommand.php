@@ -10,11 +10,14 @@ use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\HttpFoundation\RequestStack;
 
 #[AsCommand('lingua:demo', 'Smoke test the Lingua client against the translation server')]
 final class LinguaDemoCommand
 {
-    public function __construct(private readonly LinguaClient $client) {}
+    public function __construct(
+        private RequestStack $requestStack,
+        private readonly LinguaClient $client) {}
 
     public function __invoke(
         SymfonyStyle $io,
@@ -52,7 +55,7 @@ final class LinguaDemoCommand
             force: $force,
             engine: $engine,
         );
-        $res = $this->client->requestBatch($req);
+        $res = $this->client->requestBatch($req, $this->requestStack->getCurrentRequest()??null);
 
         if ($res->error) {
             $io->error($res->error);
@@ -64,6 +67,7 @@ final class LinguaDemoCommand
         }
 
         foreach ($res->items as $item) {
+            dd($item);
             $io->writeln(sprintf('[%s→%s]%s %s', $item->source, $item->target, $item->cached ? ' [cached]' : '', ' '.$item->text));
         }
 

@@ -6,6 +6,7 @@ namespace Survos\LinguaBundle\Command;
 use Doctrine\ORM\EntityManagerInterface;
 use LogicException;
 use Survos\LinguaBundle\Dto\BatchRequest;
+use Survos\LinguaBundle\Service\ApiPlatformDataFetcher;
 use Survos\LinguaBundle\Service\LinguaClient;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -13,6 +14,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[AsCommand(
     'lingua:pull:babel',
@@ -32,6 +34,8 @@ final class LinguaPullBabelCommand
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly LinguaClient $linguaClient,
+        private readonly HttpClientInterface $httpClient,
+//        private readonly ApiPlatformDataFetcher  $apiPlatformDataFetcher, // hmm, we need to pass the base to do this.
         #[Autowire('%kernel.enabled_locales%')] private array $enabledLocales=[],
     ) {}
 
@@ -81,9 +85,19 @@ final class LinguaPullBabelCommand
         }
 
         $byLocale = [];
+        $ids = [];
         foreach ($rows as $r) {
             $byLocale[$r['locale']][] = $r['hash'];
+            $ids[] = $r['hash'];
         }
+        $fetcher = new ApiPlatformDataFetcher($this->httpClient, $this->linguaClient->baseUri);
+// Get all data across all pages
+
+        $allTargets = $fetcher->fetchAllDataByIds($ids, '/api/targets', 'key');
+
+        dd($ids, $allTargets);
+
+        $url = $base . '/api/targets?page=1&key%5B%5D=abc&key%5B%5D=def';
 
         $total = count($rows);
         $io->writeln(sprintf('Untranslated rows: <info>%d</info>', $total));
@@ -111,8 +125,10 @@ final class LinguaPullBabelCommand
                     engine: $engine
                 );
 
+                dd($req);
                 $res = $this->linguaClient->requestBatch($req);
                 $data = is_array($res) ? $res : (is_array($res->items ?? null) ? [] : []);
+                dd($data, $res);
 
                 // Expect flat map[hash => translation]; if server returns items, prefer items
                 if (is_array($res->items) && $res->items !== []) {
@@ -132,6 +148,7 @@ final class LinguaPullBabelCommand
 
                 if ($data) {
                     foreach ($chunk as $hash) {
+                        dd($chunk, $data, $hash);
                         if (!array_key_exists($hash, $data)) continue;
                         $translated = (string)$data[$hash];
                         if ($translated === '') continue;

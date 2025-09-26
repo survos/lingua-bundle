@@ -69,17 +69,20 @@
                 <th>Source</th>
                 <th>Target</th>
                 <th>Text</th>
-                <th>Cached</th>
+                <th>key</th>
+                <th>Translations</th>
                 <th>Engine</th>
               </tr>
             </thead>
             <tbody>
               {% for i in result.items %}
                 <tr>
-                  <td>{{ i.source }}</td>
-                  <td>{{ i.target }}</td>
+                  <td>{{ i.locale }}</td>
+                  <td>{{ i.hash }}</td>
+                  <td>{{ i.text }}</td>
+                  <td>{{ i.translations|json_encode }}</td>
                   <td style="white-space: pre-wrap">{{ i.text }}</td>
-                  <td>{{ i.cached ? 'yes' : 'no' }}</td>
+{#                  <td>{{ i.cached ? 'yes' : 'no' }}</td>#}
                   <td>{{ i.engine ?? '' }}</td>
                 </tr>
               {% endfor %}
