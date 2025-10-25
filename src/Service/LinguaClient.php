@@ -109,7 +109,7 @@ final class LinguaClient
         }
         $status  = $response->getStatusCode();
         if ($status !== 200) {
-            dd($status, $params);
+            dd($status, $params, $response);
         }
         $data = $response->toArray(true);
 
@@ -118,7 +118,8 @@ final class LinguaClient
 //        $content = $res->getContent(false);
 //        $data    = json_decode($content, true);
         if (!\is_array($data)) {
-            $this->logger->error('Lingua batch non-JSON response', ['status' => $status, 'content' => $response->getContent()]);
+            $this->logger->error('Lingua batcT
+eh non-JSON response', ['status' => $status, 'content' => $response->getContent()]);
             return new BatchResponse(status: 'error', error: 'Non-JSON response from server', message: $content);
         }
 
