@@ -60,7 +60,7 @@ class ApiPlatformDataFetcher
             if (isset($data['hydra:member'])) {
                 $allData = array_merge($allData, $data['hydra:member']);
             }
-            dd($allData, $data, $response, $ids);
+            dd($allData); ## , $data, $response, $ids);
 
             // Check if there are more pages
             $hasMorePages = $this->hasNextPage($data);

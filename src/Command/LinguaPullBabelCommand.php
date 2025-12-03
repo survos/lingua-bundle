@@ -68,6 +68,7 @@ final class LinguaPullBabelCommand
         $io->writeln('Batch: <info>'.$batch.'</info>');
         if ($limit !== null) $io->writeln('Global limit: <info>'.$limit.'</info>');
 
+        // prepare the babel translation query where there's no text. We are not using a workflow component here, but we could use a status
         $qb = $this->em->createQueryBuilder()
             ->select('t.hash AS hash, t.locale AS locale')
             ->from($strTrClass, 't')
