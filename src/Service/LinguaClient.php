@@ -35,11 +35,48 @@ final class LinguaClient
     public ?string $proxy { get => $this->config['proxy'] ?? (str_contains($this->baseUri, '.wip') ? 'http://127.0.0.1:7080' : null); }
     public int $timeout { get => (int)($this->config['timeout'] ?? 10); }
 
+
+
     /** Deterministic code for a source string + target locale (compat with your server). */
     #[\Deprecated("using HashUtil::calcSourceKey()")]
     public static function calcHash(string $string, string $locale): string
     {
         return HashUtil::calcSourceKey($string, $locale);
+    }
+
+    /**
+     * @param string[]    $hashes
+     * @return array<string,string> map[hash => translatedText]
+     */
+    public function pullBabelByHashes(array $hashes, ?string $locale=null, ?string $engine = null): array
+    {
+        if ($hashes === []) {
+            return [];
+        }
+
+        $query = [];
+        if ($locale) {
+            $query = ['locale' => $locale];
+        }
+        if ($engine) {
+            $query['engine'] = $engine;
+        }
+
+        $response = $this->http->request('POST', rtrim($this->baseUri, '/') . '/babel/pull', [
+            'query' => $query,
+            'json'  => [
+                'hashes' => array_values(array_unique($hashes)),
+            ],
+            'headers' => [
+                'Accept' => 'application/json',
+            ],
+            'proxy' => $this->proxy,
+        ]);
+
+        // Expect: {"hash1": "Hola mundo", "hash2": "Bonjour le monde", ...}
+        $data = $response->toArray();
+
+        return \is_array($data) ? $data : [];
     }
 
     /** @param list<string> $texts */

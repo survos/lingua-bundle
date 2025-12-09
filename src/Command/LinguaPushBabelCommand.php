@@ -14,7 +14,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 #[AsCommand(
-    'lingua:push:babel',
+    'lingua:push',
     'Push ALL App\\Entity\\Str originals to Lingua for the specified target locales.',
     help: <<<'HELP'
 PUSH ALL SOURCE STRINGS TO LINGUA (public properties; no StrTranslation join)
@@ -103,7 +103,6 @@ final class LinguaPushBabelCommand
             $total++;
 
             if ($countsBySrc[$srcLocale] >= $batch) {
-                dump($textsBySrc[$srcLocale]);
                 $r = $this->sendBatch($io, $srcLocale, $targetLocales, $textsBySrc[$srcLocale], $engine, $enqueue, $force, $showServer);
                 $batches++;
 

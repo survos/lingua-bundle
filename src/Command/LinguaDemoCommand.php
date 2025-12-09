@@ -55,20 +55,26 @@ final class LinguaDemoCommand
             force: $force,
             engine: $engine,
         );
-        $res = $this->client->requestBatch($req, $this->requestStack->getCurrentRequest()??null);
+        $res = $this->client->requestBatch($req);
 
         if ($res->error) {
             $io->error($res->error);
             return Command::FAILURE;
         }
 
-        if ($res->jobId) {
+        if ($res->queued) {
             $io->success(sprintf('Queued job %s (queued=%d)', $res->jobId, $res->queued));
+        } else {
+            $io->writeln("Already queued");
         }
+//        $io->writeln(sprintf('[%s→%s]%s', $item->locale, $targetLocale, $translation));
 
         foreach ($res->items as $item) {
-            dd($item);
-            $io->writeln(sprintf('[%s→%s]%s %s', $item->source, $item->target, $item->cached ? ' [cached]' : '', ' '.$item->text));
+            $item = (object)$item;
+            foreach ($item->translations as $targetLocale => $translation) {
+                $io->writeln(sprintf('[%s→%s]%s', $item->locale, $targetLocale, $translation));
+
+            }
         }
 
         return Command::SUCCESS;

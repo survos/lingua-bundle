@@ -23,6 +23,8 @@ class ApiPlatformDataFetcher
      */
     public function fetchAllDataByIds(array $ids, string $endpoint, string $keyParam = 'key'): array
     {
+        dd($ids, $endpoint, $keyParam);
+
         $allData = [];
         $currentPage = 1;
         $hasMorePages = true;
@@ -35,7 +37,6 @@ class ApiPlatformDataFetcher
 
             // Add IDs as array parameters (key[]=abc&key[]=def)
             foreach ($ids as $id) {
-                $id = '000HU085ccbbd2d36e-en';
                 $queryParams[$keyParam . '[]'] = $id;
             }
 
