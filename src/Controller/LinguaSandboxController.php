@@ -21,16 +21,21 @@ final class LinguaSandboxController extends AbstractController
     #[Route('/_lingua/sandbox', name: 'lingua_sandbox', methods: ['GET','POST'])]
     public function sandbox(Request $request): Response
     {
+        $params = array_merge(
+            $request->query->all(),   // fallback
+            $request->request->all()  // overrides if POST
+        );
+
         $defaults = [
-            'source'        => (string)$request->get('source', 'en'),
-            'target'        => (string)$request->get('target', 'es'),
-            'engine'        => (string)$request->get('engine', 'libre'),
-            'textsRaw'      => (string)$request->get('texts', "hello\nSave\nFile"),
-            'html'          => (bool)$request->get('html', false),
-            'enqueue'       => (bool)$request->get('enqueue', false),
-            'force'         => (bool)$request->get('force', false),
-            'noTranslate'   => (bool)$request->get('noTranslate', false),
-            'now'           => (bool)$request->get('now', false),
+            'source'      => (string) ($params['source'] ?? 'en'),
+            'target'      => (string) ($params['target'] ?? 'es'),
+            'engine'      => (string) ($params['engine'] ?? 'libre'),
+            'textsRaw'    => (string) ($params['texts'] ?? "hello\nSave\nFile"),
+            'html'        => filter_var($params['html'] ?? false, FILTER_VALIDATE_BOOL),
+            'enqueue'     => filter_var($params['enqueue'] ?? false, FILTER_VALIDATE_BOOL),
+            'force'       => filter_var($params['force'] ?? false, FILTER_VALIDATE_BOOL),
+            'noTranslate' => filter_var($params['noTranslate'] ?? false, FILTER_VALIDATE_BOOL),
+            'now'         => filter_var($params['now'] ?? false, FILTER_VALIDATE_BOOL),
         ];
 
         $result = null;

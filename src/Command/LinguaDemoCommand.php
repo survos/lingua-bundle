@@ -21,7 +21,7 @@ final class LinguaDemoCommand
 
     public function __invoke(
         SymfonyStyle $io,
-        #[Argument('Text to translate')] string $text,
+        #[Argument('Text to translate')] ?string $text = null,
         #[Option('Target locale(s) (comma-separated).')] ?string $to = null,
         #[Option('Source locale (or "auto").')] ?string $from = null,
         #[Option('Engine (e.g. "libre", "deepl").')] ?string $engine = null,
@@ -30,12 +30,13 @@ final class LinguaDemoCommand
         #[Option('Enqueue if not using --now.')] ?bool $enqueue = null,
         #[Option('Force re-dispatch even if cached.')] ?bool $force = null,
     ): int {
+        $text       = $text    ?? $io->ask('What text would you like to translate?', 'hello, world');
         $to         = $to      ?? 'es';
         $from       = $from    ?? 'en';
         $engine     = $engine  ?? 'libre';
         $now        = $now     ?? false;
         $noTranslate= $noTranslate ?? false;
-        $enqueue    = $enqueue ?? !$now; // default: enqueue unless --now
+        $enqueue    = $enqueue ?? !$now;
         $force      = $force   ?? false;
 
         if ($now) {
@@ -67,13 +68,11 @@ final class LinguaDemoCommand
         } else {
             $io->writeln("Already queued");
         }
-//        $io->writeln(sprintf('[%s→%s]%s', $item->locale, $targetLocale, $translation));
 
         foreach ($res->items as $item) {
             $item = (object)$item;
             foreach ($item->translations as $targetLocale => $translation) {
                 $io->writeln(sprintf('[%s→%s]%s', $item->locale, $targetLocale, $translation));
-
             }
         }
 
