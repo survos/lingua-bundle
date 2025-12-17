@@ -27,7 +27,8 @@
         "survos/lingua-core": "dev-main"
     },
     "require-dev": {
-        "symfony/phpunit-bridge": "^7.4||^8.0"
+        "symfony/phpunit-bridge": "^7.4||^8.0",
+        "doctrine/orm": "^3.5"
     },
     "autoload": {
         "psr-4": {

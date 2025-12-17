@@ -5,6 +5,7 @@ namespace Survos\LinguaBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
 use LogicException;
+use Survos\Lingua\Core\Identity\HashUtil;
 use Survos\LinguaBundle\Service\LinguaClient;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -16,11 +17,16 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 #[AsCommand(
     'lingua:pull',
     'Pull babel translations by hash into App\\Entity\\StrTranslation (no join).',
+    aliases: ['babel:pull'],
     help: <<<'HELP'
 FAST PULL (hash lookup, no join)
 
 Selects UNTRANSLATED App\Entity\StrTranslation rows, grouped by target locale,
-and fetches translations by *hash* from the Lingua server.
+and fetches translations by *source hash* from the Lingua server.
+
+IMPORTANT:
+- Lingua /babel/pull returns a map keyed by Source.hash (aka STR.hash).
+- In Babel schema, that is stored as StrTranslation.strHash (NOT StrTranslation.hash).
 
 Defaults:
   --targets      Defaults to framework.translator.enabled_locales
@@ -37,7 +43,7 @@ final class LinguaPullBabelCommand
 
     public function __invoke(
         SymfonyStyle $io,
-        #[Option('Target locales (comma/space separated). Defaults to all')]
+        #[Option('Target locales (comma/space separated). Defaults to enabled_locales.')]
         ?string $targets = null,
         #[Option('Preferred translation engine to pass to Lingua (e.g. "libre", "deepl").')]
         ?string $engine = null,
@@ -45,21 +51,18 @@ final class LinguaPullBabelCommand
         int $batch = 500,
         #[Option('Hard cap on untranslated rows to process (debug).')]
         ?int $limit = null,
+        #[Option('Do not group by locale; pull all hashes in one stream.')]
+        bool $noLocaleGrouping = false,
     ): int {
         $strTrClass = 'App\\Entity\\StrTranslation';
         if (!class_exists($strTrClass)) {
             throw new LogicException('App\\Entity\\StrTranslation is required.');
         }
 
-        $io->title('Lingua ⇄ Babel: PULL by hash');
-
         $targetLocales = $this->parseTargets($targets);
-//        if (!$targetLocales) {
-//            $io->error('No target locales resolved (configure translator.enabled_locales or pass --targets).');
-//            return Command::INVALID;
-//        }
 
-        $io->writeln('Target locales: <info>'.implode(', ', $targetLocales).'</info>');
+        $io->title('Lingua ⇄ Babel: PULL by hash');
+        $io->writeln('Target locales: <info>'.($targetLocales ? implode(', ', $targetLocales) : '(all)').'</info>');
         if ($engine) {
             $io->writeln('Engine: <info>'.$engine.'</info>');
         }
@@ -68,13 +71,15 @@ final class LinguaPullBabelCommand
             $io->writeln('Global limit: <info>'.$limit.'</info>');
         }
 
-        // 1) Find untranslated StrTranslation rows
+        // 1) Find untranslated StrTranslation rows.
+        // IMPORTANT: We need the SOURCE HASH used by /babel/pull, which is StrTranslation.strHash.
         $qb = $this->em->createQueryBuilder()
-            ->select('t.hash AS hash, t.locale AS locale')
+            ->select('t.strHash AS str_hash, t.locale AS locale')
             ->from($strTrClass, 't')
             ->andWhere('(t.text IS NULL OR t.text = \'\')')
-            ->orderBy('t.hash', 'ASC');
-        if ($targetLocales) {
+            ->orderBy('t.strHash', 'ASC');
+
+        if ($targetLocales !== []) {
             $qb->andWhere('t.locale IN (:locales)')
                 ->setParameter('locales', $targetLocales);
         }
@@ -83,8 +88,9 @@ final class LinguaPullBabelCommand
             $qb->setMaxResults($limit);
         }
 
+        /** @var list<array{str_hash:mixed, locale:mixed}> $rows */
         $rows = $qb->getQuery()->getArrayResult();
-        if (!$rows) {
+        if ($rows === []) {
             $io->success('No untranslated rows match filters.');
             return Command::SUCCESS;
         }
@@ -92,74 +98,107 @@ final class LinguaPullBabelCommand
         $total = \count($rows);
         $io->writeln(sprintf('Untranslated rows: <info>%d</info>', $total));
 
-        // Group hashes by locale?
+        // 2) Group by locale (default) so we can pass locale hint to server.
+        /** @var array<string, list<string>> $byLocale */
         $byLocale = [];
-        $hashes = [];
+
         foreach ($rows as $r) {
-//            $byLocale[$r['locale']][] = $r['hash'];
-            $byLocale[''][] = $r['hash'];
-//            $hashes[] = $r['hash'];
+            $h = (string) ($r['str_hash'] ?? '');
+            $l = (string) ($r['locale'] ?? '');
+            if ($h === '') {
+                continue;
+            }
+
+            // Normalize locale keys so DB matching + server calls align.
+            $l = $l !== '' ? HashUtil::normalizeLocale($l) : '';
+
+            if ($noLocaleGrouping) {
+                $byLocale[''][] = $h;
+            } else {
+                $byLocale[$l][] = $h;
+            }
         }
 
+        if ($byLocale === []) {
+            $io->success('No untranslated rows after normalization.');
+            return Command::SUCCESS;
+        }
 
         $progress = new ProgressBar($io, $total);
         $progress->start();
 
         $updated = 0;
-        $flushes = 0;
+        $chunksRequested = 0;
 
-        foreach ($byLocale as $locale => $hashes) {
-            $io->newLine(2);
-            $io->section("Locale: $locale");
+        foreach ($byLocale as $locale => $strHashes) {
+            $locale = trim($locale);
+            $locale = $locale !== '' ? HashUtil::normalizeLocale($locale) : '';
 
-            foreach (array_chunk($hashes, $batch) as $chunk) {
-                // 2) Ask Lingua for translations for this chunk of hashes
-                $map = $this->linguaClient->pullBabelByHashes($chunk, $locale, $engine);
-                // $map is expected to be: [hash => text]
+            if (!$noLocaleGrouping) {
+                $io->newLine(2);
+                $io->section('Locale: ' . ($locale !== '' ? $locale : '(none)'));
+            }
 
-                if ($map === [] || !\is_array($map)) {
-                    // Nothing translated for this chunk – mark as "seen" in progress
+            foreach (array_chunk($strHashes, $batch) as $chunk) {
+                $chunksRequested++;
+
+                // 3) Ask Lingua for translations for this chunk of SOURCE hashes.
+                // Server returns: [ <sourceHash> => <translatedText>, ... ]
+                $map = $this->linguaClient->pullBabelByHashes(
+                    $chunk,
+                    $locale !== '' ? $locale : null,
+                    $engine
+                );
+
+                if (!is_array($map) || $map === []) {
+                    // Still advance progress for every row in this chunk.
                     $progress->advance(\count($chunk));
                     continue;
                 }
 
-                // 3) Update rows in-place via DQL UPDATE
-                foreach ($chunk as $hash) {
-                    if (!array_key_exists($hash, $map)) {
+                // 4) Update rows in-place via DQL UPDATE (avoid loading entities).
+                // IMPORTANT: Update by (strHash, locale), NOT by StrTranslation.hash.
+                foreach ($chunk as $strHash) {
+                    if (!array_key_exists($strHash, $map)) {
                         $progress->advance(1);
                         continue;
                     }
 
-                    $translated = (string) $map[$hash];
+                    $translated = $map[$strHash];
+                    $translated = is_string($translated) ? $translated : (string) $translated;
+
                     if ($translated === '') {
                         $progress->advance(1);
                         continue;
                     }
 
-                    $this->em->createQuery(
+                    $q = $this->em->createQuery(
                         'UPDATE '.$strTrClass.' t
                          SET t.text = :text, t.status = :st
-                         WHERE t.hash = :hash
-                         '
-                    )
-                        ->setParameter('text', $translated)
-                        ->setParameter('st', 'translated')
-                        ->setParameter('hash', $hash)
-                        ->execute();
+                         WHERE t.strHash = :strHash AND t.locale = :locale'
+                    );
+                    $q->setParameter('text', $translated);
+                    $q->setParameter('st', 'translated');
+                    $q->setParameter('strHash', $strHash);
+                    $q->setParameter('locale', $locale);
 
-                    $updated++;
+                    // DQL UPDATE returns number of affected rows.
+                    $affected = (int) $q->execute();
+                    if ($affected > 0) {
+                        $updated += $affected;
+                    }
+
                     $progress->advance(1);
                 }
 
-                // keep memory usage low
+                // Keep memory usage low; DQL UPDATE bypasses UoW but clearing is still fine.
                 $this->em->clear();
-                $flushes++;
             }
         }
 
         $progress->finish();
         $io->newLine(2);
-        $io->success(sprintf('Updated translations: %d (flushes: %d)', $updated, $flushes));
+        $io->success(sprintf('Updated translations: %d (chunks: %d)', $updated, $chunksRequested));
 
         return Command::SUCCESS;
     }
