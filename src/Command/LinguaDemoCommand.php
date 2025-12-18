@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Command;
 
-use Survos\LinguaBundle\Dto\BatchRequest;
+use Survos\Lingua\Contracts\Dto\BatchRequest;
 use Survos\LinguaBundle\Service\LinguaClient;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Argument;
@@ -16,47 +16,58 @@ use Symfony\Component\HttpFoundation\RequestStack;
 final class LinguaDemoCommand
 {
     public function __construct(
-        private RequestStack $requestStack,
         private readonly LinguaClient $client) {}
 
     public function __invoke(
-        SymfonyStyle $io,
-        #[Argument('Text to translate')] ?string $text = null,
-        #[Option('Target locale(s) (comma-separated).')] ?string $to = null,
-        #[Option('Source locale (or "auto").')] ?string $from = null,
-        #[Option('Engine (e.g. "libre", "deepl").')] ?string $engine = null,
-        #[Option('Translate immediately (no queue).')] ?bool $now = null,
+        SymfonyStyle                                               $io,
+        #[Argument('Text to translate')] ?string                   $text = null,
+        #[Option('Target locale(s) (comma-separated).')] ?string   $target = null,
+        #[Option('Source locale (or "auto").')] ?string            $source = null,
+        #[Option('Engine (e.g. "libre", "deepl").')] ?string       $engine = null,
+        #[Option('Transport')] ?string                             $transport = null,
+        #[Option('Translate immediately (no queue).')] ?bool       $now = null,
         #[Option('Lookup-only; do not insert new strings.')] ?bool $noTranslate = null,
-        #[Option('Enqueue if not using --now.')] ?bool $enqueue = null,
-        #[Option('Force re-dispatch even if cached.')] ?bool $force = null,
+        #[Option('Enqueue if not using --now.')] ?bool             $enqueue = null,
+        #[Option('Force re-dispatch even if cached.', name: 'force')] ?bool       $forceDispatch = null,
     ): int {
         $text       = $text    ?? $io->ask('What text would you like to translate?', 'hello, world');
-        $to         = $to      ?? 'es';
-        $from       = $from    ?? 'en';
+        $target         = $target      ?? 'es';
+        $source       = $source    ?? 'en';
         $engine     = $engine  ?? 'libre';
         $now        = $now     ?? false;
         $noTranslate= $noTranslate ?? false;
         $enqueue    = $enqueue ?? !$now;
-        $force      = $force   ?? false;
+        $forceDispatch ??= false;
+        $transport ??= 'sync';
 
         if ($now) {
-            $item = $this->client->translateNow($text, $to, $from, ['engine' => $engine], $noTranslate);
+            $item = $this->client->translateNow($text, $target, $source, ['engine' => $engine], $noTranslate);
             $io->writeln(($item->cached ? '[cached] ' : '[fresh] ').$item->text);
             return Command::SUCCESS;
         }
 
         $req = new BatchRequest(
+            source: $source,
+            target: [$target],
             texts: [$text],
-            source: $from,
-            target: is_array($to) ? $to : explode(',', $to),
-            html: false,
-            insertNewStrings: !$noTranslate,
-            extra: ['engine' => $engine],
-            enqueue: $enqueue,
-            force: $force,
             engine: $engine,
+            insertNewStrings: true,
+            forceDispatch: $forceDispatch,
+            transport: $transport
         );
+
+//        $req = new BatchRequest(
+//            source: $from,
+//            target: [$to],
+//            texts: [$text],
+//            engine: $engine,
+//            insertNewStrings: true,
+//            forceDispatch: $force,
+//            transport: $transport
+//        );
+        dump($req);
         $res = $this->client->requestBatch($req);
+        dd($res);
 
         if ($res->error) {
             $io->error($res->error);
