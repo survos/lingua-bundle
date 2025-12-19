@@ -4,9 +4,10 @@ declare(strict_types=1);
 namespace Survos\LinguaBundle\Command;
 
 use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\ParameterType;
 use Doctrine\ORM\EntityManagerInterface;
 use LogicException;
+use Survos\BabelBundle\Entity\Str as BabelStr;
+use Survos\BabelBundle\Entity\StrTranslation as BabelStrTranslation;
 use Survos\Lingua\Contracts\Dto\BatchRequest;
 use Survos\LinguaBundle\Service\LinguaClient;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -22,11 +23,11 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
     help: <<<'HELP'
 LINGUA PUSH (Babel-aware)
 
-Default mode (recommended): reads App\Entity\StrTranslation rows with missing text and pushes
+Default mode (recommended): reads StrTranslation rows with missing text and pushes
 translation requests grouped by (source-locale, target-locale). This prevents "extra locales"
 from leaking in because targets come from existing TR stubs.
 
-Legacy mode: push ALL App\Entity\Str originals to the specified target locales.
+Legacy mode: push ALL Str originals to the specified target locales.
 
 Options:
   --mode=tr     Default. Push from untranslated TR stubs (grouped by locale).
@@ -37,6 +38,8 @@ HELP
 )]
 final class LinguaPushBabelCommand
 {
+    private const string STUB_ENGINE = 'babel';
+
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly LinguaClient $linguaClient,
@@ -47,31 +50,22 @@ final class LinguaPushBabelCommand
         SymfonyStyle $io,
         #[Option('Mode: "tr" (default, from untranslated StrTranslation) or "str" (legacy, all Str).')]
         string $mode = 'tr',
-
         #[Option('Target locales filter (comma/space separated). In "tr" mode this restricts which locales are pushed.')]
         ?string $targets = null,
-
         #[Option('Preferred translation engine (e.g. "libre", "deepl").')]
         ?string $engine = null,
-
         #[Option('Batch size for Lingua requests.', shortcut: 'b')]
         int $batch = 200,
-
         #[Option('Hard cap on number of rows considered (0 = no cap).')]
         int $limit = 0,
-
         #[Option('Queue work on server (alias for --transport=async when not provided).')]
         bool $enqueue = false,
-
         #[Option('Force dispatch even if cached/already translated (server-dependent).')]
         bool $force = false,
-
         #[Option('Messenger transport override (e.g. "async").')]
         ?string $transport = null,
-
         #[Option('Show raw server payload for each batch.')]
         bool $showServer = false,
-
         #[Option('Fail if any batch reports an error or zero accepted items.')]
         bool $strict = false,
     ): int {
@@ -81,7 +75,6 @@ final class LinguaPushBabelCommand
             return Command::INVALID;
         }
 
-        // enqueue is shorthand for async transport if none explicitly provided
         if ($enqueue && $transport === null) {
             $transport = 'async';
         }
@@ -110,6 +103,10 @@ final class LinguaPushBabelCommand
             : $this->pushAllStr($io, $targetFilter, $engine, $batch, $limit, $transport, $force, $showServer, $strict);
     }
 
+    /**
+     * Default mode: push from untranslated TR stubs.
+     * Uses Babel bundle entities by default, falls back to App overrides if present.
+     */
     private function pushFromTrStubs(
         SymfonyStyle $io,
         array $targetFilter,
@@ -121,40 +118,41 @@ final class LinguaPushBabelCommand
         bool $showServer,
         bool $strict
     ): int {
-        $strClass = 'App\\Entity\\Str';
-        $trClass  = 'App\\Entity\\StrTranslation';
-
-        if (!class_exists($strClass) || !class_exists($trClass)) {
-            throw new LogicException('App\\Entity\\Str and App\\Entity\\StrTranslation are required for --mode=tr.');
-        }
+        [$strClass, $trClass] = $this->resolveBabelEntityClasses();
 
         $em = $this->em;
         $conn = $em->getConnection();
 
-        // Resolve table + column names from metadata to avoid hardcoding snake/camel differences
         $mStr = $em->getClassMetadata($strClass);
         $mTr  = $em->getClassMetadata($trClass);
 
         $tStr = $mStr->getTableName();
         $tTr  = $mTr->getTableName();
 
-        $cStrHash = $mStr->getColumnName('hash');
-        $cOrig    = $mStr->getColumnName('original');
-        $cSrc     = $mStr->getColumnName('srcLocale');
+        // New schema field names
+        $cStrCode = $mStr->getColumnName('code');
+        $cSource  = $mStr->getColumnName('source');
+        $cSrcLoc  = $mStr->getColumnName('sourceLocale');
 
-        $cTrStrHash = $mTr->getColumnName('strHash');
-        $cTrLocale  = $mTr->getColumnName('locale');
+        $cTrStrCode = $mTr->getColumnName('strCode');
+        $cTrLoc     = $mTr->getColumnName('targetLocale');
         $cTrText    = $mTr->getColumnName('text');
+        $cTrEngine  = $mTr->getColumnName('engine');
 
         $pf = $conn->getDatabasePlatform();
         $q = static fn(string $id) => $pf->quoteIdentifier($id);
 
-        $where = sprintf('(%s IS NULL OR %s = \'\')', $q($cTrText), $q($cTrText));
-        $params = [];
-        $types  = [];
+        $where = sprintf('(%1$s IS NULL OR %1$s = \'\')', $q($cTrText));
+        $params = [
+            'stubEngine' => self::STUB_ENGINE,
+        ];
+        $types = [];
+
+        // Only push from Babel-created stubs
+        $where .= sprintf(' AND %s = :stubEngine', $q($cTrEngine));
 
         if ($targetFilter !== []) {
-            $where .= sprintf(' AND %s IN (:targets)', $q($cTrLocale));
+            $where .= sprintf(' AND %s IN (:targets)', $q($cTrLoc));
             $params['targets'] = $targetFilter;
             $types['targets']  = ArrayParameterType::STRING;
         }
@@ -168,12 +166,12 @@ final class LinguaPushBabelCommand
               WHERE %8$s
               ORDER BY target_locale, source_locale, %3$s.%7$s',
             $q($tTr),
-            $q($cTrLocale),
+            $q($cTrLoc),
             $q($tStr),
-            $q($cSrc),
-            $q($cOrig),
-            $q($cTrStrHash),
-            $q($cStrHash),
+            $q($cSrcLoc),
+            $q($cSource),
+            $q($cTrStrCode),
+            $q($cStrCode),
             $where
         );
 
@@ -200,13 +198,17 @@ final class LinguaPushBabelCommand
         }
 
         $totalTexts = 0;
-        foreach ($groups as $src => $byTarget) {
-            foreach ($byTarget as $tgt => $texts) {
+        foreach ($groups as $byTarget) {
+            foreach ($byTarget as $texts) {
                 $totalTexts += count($texts);
             }
         }
 
-        $io->writeln(sprintf('Found <info>%d</info> untranslated texts across <info>%d</info> (src,target) groups.', $totalTexts, $this->countGroups($groups)));
+        $io->writeln(sprintf(
+            'Found <info>%d</info> untranslated texts across <info>%d</info> (src,target) groups.',
+            $totalTexts,
+            $this->countGroups($groups)
+        ));
 
         $batches = 0;
         $totalAccepted = 0;
@@ -214,17 +216,14 @@ final class LinguaPushBabelCommand
         $totalMissing  = 0;
         $hadError      = false;
 
-        // Process target-locale groups in a stable order (finish one locale before the next)
         foreach ($this->sortGroupsByTargetThenSource($groups) as [$src, $tgt, $texts]) {
             $io->section(sprintf('Target %s (from %s) — %d texts', $tgt, $src, count($texts)));
 
-            // Chunk into request batches
-            $chunks = array_chunk($texts, $batch);
-            foreach ($chunks as $chunk) {
+            foreach (array_chunk($texts, $batch) as $chunk) {
                 $r = $this->sendBatch(
                     $io,
                     $src,
-                    [$tgt], // IMPORTANT: one locale per request => no leakage
+                    [$tgt],
                     $chunk,
                     $engine,
                     $transport,
@@ -270,16 +269,11 @@ final class LinguaPushBabelCommand
         bool $showServer,
         bool $strict
     ): int {
-        $strClass = 'App\\Entity\\Str';
-        if (!class_exists($strClass)) {
-            throw new LogicException('App\\Entity\\Str is required for --mode=str.');
-        }
+        [$strClass] = $this->resolveBabelEntityClasses();
 
-        // In legacy mode, if --targets not provided, default to enabled_locales.
         if ($targetLocales === []) {
             $targetLocales = array_values(array_unique(array_filter(array_map('trim', $this->enabledLocales))));
         }
-
         if ($targetLocales === []) {
             $io->error('No target locales resolved. Configure enabled_locales or pass --targets=...');
             return Command::INVALID;
@@ -290,7 +284,7 @@ final class LinguaPushBabelCommand
         $qb = $this->em->createQueryBuilder()
             ->select('s')
             ->from($strClass, 's')
-            ->orderBy('s.hash', 'ASC');
+            ->orderBy('s.code', 'ASC');
 
         if ($limit > 0) {
             $qb->setMaxResults($limit);
@@ -313,13 +307,13 @@ final class LinguaPushBabelCommand
         $hadError = false;
 
         foreach ($iter as $str) {
-            /** @var object{original:string,srcLocale?:string} $str */
-            $original = (string) ($str->original ?? '');
+            /** @var object{source:string,sourceLocale?:string} $str */
+            $original = (string) ($str->source ?? '');
             if ($original === '') {
                 continue;
             }
 
-            $srcLocale = (string) ($str->srcLocale ?? 'en');
+            $srcLocale = (string) ($str->sourceLocale ?? 'en');
             $textsBySrc[$srcLocale][] = $original;
             $countsBySrc[$srcLocale] = ($countsBySrc[$srcLocale] ?? 0) + 1;
             $total++;
@@ -369,6 +363,23 @@ final class LinguaPushBabelCommand
         return Command::SUCCESS;
     }
 
+    /**
+     * Prefer App overrides if present; otherwise use Babel bundle entities.
+     *
+     * @return array{0:class-string,1:class-string}
+     */
+    private function resolveBabelEntityClasses(): array
+    {
+        $appStr = 'App\\Entity\\Str';
+        $appTr  = 'App\\Entity\\StrTranslation';
+
+        if (class_exists($appStr) && class_exists($appTr)) {
+            return [$appStr, $appTr];
+        }
+
+        return [BabelStr::class, BabelStrTranslation::class];
+    }
+
     /** @return list<string> */
     private function parseTargets(?string $targets): array
     {
@@ -381,7 +392,6 @@ final class LinguaPushBabelCommand
 
     /**
      * @param array<string, array<string, list<string>>> $groups
-     * @return int
      */
     private function countGroups(array $groups): int
     {
@@ -394,7 +404,7 @@ final class LinguaPushBabelCommand
 
     /**
      * @param array<string, array<string, list<string>>> $groups
-     * @return list<array{0:string,1:string,2:list<string>}> list of [src,tgt,texts] sorted by tgt then src
+     * @return list<array{0:string,1:string,2:list<string>}>
      */
     private function sortGroupsByTargetThenSource(array $groups): array
     {
@@ -406,7 +416,6 @@ final class LinguaPushBabelCommand
         }
 
         usort($flat, static function(array $a, array $b): int {
-            // sort by target locale first (finish one locale), then by source locale
             $cmp = strcmp($a[1], $b[1]);
             return $cmp !== 0 ? $cmp : strcmp($a[0], $b[0]);
         });
@@ -415,9 +424,6 @@ final class LinguaPushBabelCommand
     }
 
     /**
-     * Send a single batch and print a concise outcome line.
-     * Returns ['accepted'=>int, 'queued'=>int, 'missing'=>int, 'error'=>?string]
-     *
      * @param list<string> $targets
      * @param list<string> $texts
      * @return array{accepted:int, queued:int, missing:int, error:?string}
@@ -487,7 +493,7 @@ final class LinguaPushBabelCommand
         return ['accepted' => $accepted, 'queued' => $queued, 'missing' => $missing, 'error' => $errorMsg];
     }
 
-    /** @return array{0: array, 1: array} [$resp,$top] */
+    /** @return array{0: array, 1: array} */
     private function normalizeServerResult(mixed $raw): array
     {
         if ($raw instanceof \JsonSerializable) {
