@@ -68,6 +68,7 @@ final class LinguaPushBabelCommand
         bool $showServer = false,
         #[Option('Fail if any batch reports an error or zero accepted items.')]
         bool $strict = false,
+
     ): int {
         $mode = strtolower(trim($mode));
         if (!in_array($mode, ['tr', 'str'], true)) {
@@ -129,6 +130,8 @@ final class LinguaPushBabelCommand
         $tStr = $mStr->getTableName();
         $tTr  = $mTr->getTableName();
 
+        $strRepo = $em->getRepository($strClass);
+
         // New schema field names
         $cStrCode = $mStr->getColumnName('code');
         $cSource  = $mStr->getColumnName('source');
@@ -143,13 +146,14 @@ final class LinguaPushBabelCommand
         $q = static fn(string $id) => $pf->quoteIdentifier($id);
 
         $where = sprintf('(%1$s IS NULL OR %1$s = \'\')', $q($cTrText));
-        $params = [
-            'stubEngine' => self::STUB_ENGINE,
-        ];
+        $params = [];
+//        $params = [
+//            'stubEngine' => self::STUB_ENGINE,
+//        ];
         $types = [];
 
         // Only push from Babel-created stubs
-        $where .= sprintf(' AND %s = :stubEngine', $q($cTrEngine));
+//        $where .= sprintf(' AND %s = :stubEngine', $q($cTrEngine));
 
         if ($targetFilter !== []) {
             $where .= sprintf(' AND %s IN (:targets)', $q($cTrLoc));
@@ -442,6 +446,16 @@ final class LinguaPushBabelCommand
         if ($count === 0) {
             return ['accepted' => 0, 'queued' => 0, 'missing' => 0, 'error' => null];
         }
+
+//        $io->writeln('<comment>Outgoing request:</comment>');
+//        $io->writeln(json_encode([
+//            'source' => $source,
+//            'target' => $targets,
+//            'texts'  => $texts,
+//            'engine' => $engine,
+//            'transport' => $transport,
+//            'forceDispatch' => $forceDispatch,
+//        ], JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
 
         $io->writeln(sprintf(
             'Sending batch: source=<info>%s</info>, targets=<info>%s</info>, count=<info>%d</info>',

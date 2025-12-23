@@ -40,7 +40,7 @@ final class LinguaClient
 
     /**
      * @param list<string> $hashes
-     * @return array<string,string>
+     * @return array<string,string> map[strCode => translatedText]
      */
     public function pullBabelByHashes(array $hashes, ?string $locale = null, ?string $engine = null): array
     {
@@ -57,10 +57,16 @@ final class LinguaClient
             $query['engine'] = $engine;
         }
 
+        // Back-compat: send both "hashes" and "keys"
+        $payload = [
+            'hashes' => $hashes,
+            'keys'   => $hashes,
+        ];
+
         $response = $this->http->request('POST', $this->baseUri . self::ROUTE_PULL, [
             'query'    => $query,
-            'json'     => ['hashes' => $hashes],
-            'headers'  => $this->headers(),
+            'json'     => $payload,
+            'headers'  => $this->headers(json: true),
             'timeout'  => $this->timeout,
             'proxy'    => $this->proxy,
         ]);
@@ -70,11 +76,22 @@ final class LinguaClient
             return [];
         }
 
+        // Unwrap common envelopes: {"response": {...}} or {"data": {...}}
+        if (isset($data['response']) && is_array($data['response'])) {
+            $data = $data['response'];
+        } elseif (isset($data['data']) && is_array($data['data'])) {
+            $data = $data['data'];
+        }
+
         $out = [];
         foreach ($data as $k => $v) {
-            if (is_string($k)) {
-                $out[$k] = is_string($v) ? $v : (string) $v;
+            if (!is_string($k) || $k === '') {
+                continue;
             }
+            if ($v === null) {
+                continue;
+            }
+            $out[$k] = is_string($v) ? $v : (string) $v;
         }
 
         return $out;

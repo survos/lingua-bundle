@@ -17,22 +17,8 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 #[AsCommand(
     'lingua:pull',
-    'Pull babel translations by source key into StrTranslation (no join).',
+    'Pull babel translations by source key into StrTranslation.',
     aliases: ['babel:pull'],
-    help: <<<'HELP'
-FAST PULL (source-key lookup, no join)
-
-Selects UNTRANSLATED StrTranslation rows, grouped by target locale,
-and fetches translations by *source key* from the Lingua server.
-
-IMPORTANT:
-- Lingua /babel/pull returns a map keyed by Source.key (aka STR.code).
-- In Babel schema, that is stored as StrTranslation.strCode.
-
-Defaults:
-  --targets      Defaults to enabled_locales
-  --batch / -b   500
-HELP
 )]
 final class LinguaPullBabelCommand
 {
@@ -48,7 +34,7 @@ final class LinguaPullBabelCommand
         SymfonyStyle $io,
         #[Option('Target locales (comma/space separated). Defaults to enabled_locales.')]
         ?string $targets = null,
-        #[Option('Preferred translation engine to pass to Lingua (e.g. "libre", "deepl").')]
+        #[Option('Provider engine to pass to Lingua (e.g. "libre", "deepl").')]
         ?string $engine = null,
         #[Option('Batch size (keys per request).', shortcut: 'b')]
         int $batch = 500,
@@ -56,32 +42,30 @@ final class LinguaPullBabelCommand
         ?int $limit = null,
         #[Option('Do not group by locale; pull all keys in one stream.')]
         bool $noLocaleGrouping = false,
-        #[Option('Only process rows created by Babel stubs (engine="babel").')]
-        bool $onlyBabelEngine = true,
+        #[Option('Update ALL untranslated rows regardless of StrTranslation.engine.')]
+        bool $allEngines = false,
     ): int {
         $trClass = $this->resolveBabelTrClass();
-
         $targetLocales = $this->parseTargets($targets);
 
         $io->title('Lingua ⇄ Babel: PULL by source key');
         $io->writeln('Target locales: <info>'.($targetLocales ? implode(', ', $targetLocales) : '(all)').'</info>');
         if ($engine) {
-            $io->writeln('Engine: <info>'.$engine.'</info>');
+            $io->writeln('Provider engine: <info>'.$engine.'</info>');
         }
         $io->writeln('Batch: <info>'.$batch.'</info>');
+        $io->writeln('Engine filter: <info>'.($allEngines ? '(none)' : 'engine=babel').'</info>');
         if ($limit !== null) {
             $io->writeln('Global limit: <info>'.$limit.'</info>');
         }
 
-        // 1) Find untranslated StrTranslation rows.
-        // We need: strCode (the source key) + targetLocale
         $qb = $this->em->createQueryBuilder()
             ->select('t.strCode AS str_code, t.targetLocale AS locale')
             ->from($trClass, 't')
             ->andWhere('(t.text IS NULL OR t.text = \'\')')
             ->orderBy('t.strCode', 'ASC');
 
-        if ($onlyBabelEngine) {
+        if (!$allEngines) {
             $qb->andWhere('t.engine = :stubEngine')
                 ->setParameter('stubEngine', self::STUB_ENGINE);
         }
@@ -95,7 +79,6 @@ final class LinguaPullBabelCommand
             $qb->setMaxResults($limit);
         }
 
-        /** @var list<array{str_code:mixed, locale:mixed}> $rows */
         $rows = $qb->getQuery()->getArrayResult();
         if ($rows === []) {
             $io->success('No untranslated rows match filters.');
@@ -105,25 +88,15 @@ final class LinguaPullBabelCommand
         $total = \count($rows);
         $io->writeln(sprintf('Untranslated rows: <info>%d</info>', $total));
 
-        // 2) Group by locale (default) so we can pass locale hint to server.
-        /** @var array<string, list<string>> $byLocale */
         $byLocale = [];
-
         foreach ($rows as $r) {
             $key = (string) ($r['str_code'] ?? '');
             $loc = (string) ($r['locale'] ?? '');
-
             if ($key === '') {
                 continue;
             }
-
             $loc = $loc !== '' ? HashUtil::normalizeLocale($loc) : '';
-
-            if ($noLocaleGrouping) {
-                $byLocale[''][] = $key;
-            } else {
-                $byLocale[$loc][] = $key;
-            }
+            $byLocale[$noLocaleGrouping ? '' : $loc][] = $key;
         }
 
         if ($byLocale === []) {
@@ -138,7 +111,7 @@ final class LinguaPullBabelCommand
         $chunksRequested = 0;
 
         foreach ($byLocale as $locale => $keys) {
-            $locale = trim($locale);
+            $locale = trim((string) $locale);
             $locale = $locale !== '' ? HashUtil::normalizeLocale($locale) : '';
 
             if (!$noLocaleGrouping) {
@@ -149,20 +122,21 @@ final class LinguaPullBabelCommand
             foreach (array_chunk($keys, $batch) as $chunk) {
                 $chunksRequested++;
 
-                // 3) Ask Lingua for translations for this chunk of SOURCE keys.
-                // Server returns: [ <strCode> => <translatedText>, ... ]
                 $map = $this->linguaClient->pullBabelByHashes(
                     $chunk,
                     $locale !== '' ? $locale : null,
                     $engine
                 );
 
+                if (is_array($map) && $io->isVeryVerbose()) {
+                    $io->writeln(sprintf('<comment>pull returned %d/%d</comment>', count($map), count($chunk)));
+                }
+
                 if (!is_array($map) || $map === []) {
                     $progress->advance(\count($chunk));
                     continue;
                 }
 
-                // 4) Update rows in-place via DQL UPDATE (avoid loading entities).
                 foreach ($chunk as $strCode) {
                     if (!array_key_exists($strCode, $map)) {
                         $progress->advance(1);
@@ -171,23 +145,21 @@ final class LinguaPullBabelCommand
 
                     $translated = $map[$strCode];
                     $translated = is_string($translated) ? $translated : (string) $translated;
-
                     if ($translated === '') {
                         $progress->advance(1);
                         continue;
                     }
 
-                    $q = $this->em->createQuery(
-                        'UPDATE '.$trClass.' t
-                         SET t.text = :text
-                         WHERE t.strCode = :strCode AND t.targetLocale = :locale'
-                        . ($onlyBabelEngine ? ' AND t.engine = :stubEngine' : '')
-                    );
+                    $dql = 'UPDATE '.$trClass.' t
+                            SET t.text = :text
+                            WHERE t.strCode = :strCode AND t.targetLocale = :locale'
+                        . (!$allEngines ? ' AND t.engine = :stubEngine' : '');
 
+                    $q = $this->em->createQuery($dql);
                     $q->setParameter('text', $translated);
                     $q->setParameter('strCode', $strCode);
                     $q->setParameter('locale', $locale);
-                    if ($onlyBabelEngine) {
+                    if (!$allEngines) {
                         $q->setParameter('stubEngine', self::STUB_ENGINE);
                     }
 
@@ -206,26 +178,18 @@ final class LinguaPullBabelCommand
         $progress->finish();
         $io->newLine(2);
         $io->success(sprintf('Updated translations: %d (chunks: %d)', $updated, $chunksRequested));
-
         return Command::SUCCESS;
     }
 
-    /**
-     * Prefer App override if present; otherwise use Babel bundle entity.
-     *
-     * @return class-string
-     */
     private function resolveBabelTrClass(): string
     {
         $appTr  = 'App\\Entity\\StrTranslation';
         if (class_exists($appTr)) {
             return $appTr;
         }
-
         if (!class_exists(BabelStrTranslation::class)) {
-            throw new LogicException('Babel StrTranslation entity not available. Install survos/babel-bundle or provide App\\Entity\\StrTranslation.');
+            throw new LogicException('Babel StrTranslation entity not available.');
         }
-
         return BabelStrTranslation::class;
     }
 
@@ -235,7 +199,6 @@ final class LinguaPullBabelCommand
         if ($targets === null || trim($targets) === '') {
             return array_values(array_unique(array_filter(array_map('trim', $this->enabledLocales))));
         }
-
         $parts = preg_split('/[,\s]+/', $targets) ?: [];
         return array_values(array_unique(array_filter(array_map('trim', $parts))));
     }
