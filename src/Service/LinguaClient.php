@@ -27,7 +27,7 @@ final class LinguaClient
         #[Autowire(param: 'lingua.config')] private array $config = [],
     ) {}
 
-    public string $baseUri { get => rtrim((string)($this->config['server'] ?? 'https://translation-server.survos.com'), '/'); }
+    public string $baseUri { get => rtrim((string)($this->config['server'] ?? 'https://lingua.survos.com'), '/'); }
     public ?string $apiToken { get => isset($this->config['api_key']) ? (string) $this->config['api_key'] : null; }
     public ?string $proxy { get => $this->config['proxy'] ?? (str_contains($this->baseUri, '.wip') ? 'http://127.0.0.1:7080' : null); }
     public int $timeout { get => (int)($this->config['timeout'] ?? 10); }
