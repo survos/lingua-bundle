@@ -24,7 +24,8 @@
         "symfony/console": "^8.1",
         "symfony/http-client": "^8.1",
         "survos/lingua-contracts": "^2.5",
-        "survos/lingua-core": "^2.5"
+        "survos/lingua-core": "^2.5",
+        "survos/babel-bundle": "^2.10"
     },
     "require-dev": {
         "symfony/phpunit-bridge": "^8.1",

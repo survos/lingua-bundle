@@ -5,6 +5,7 @@ namespace Survos\LinguaBundle\Command;
 
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
+use Survos\BabelBundle\Runtime\BabelSchema;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
@@ -184,20 +185,21 @@ final class LinguaSyncBabelCommand
     }
 
     /**
-     * Compute completion per target locale from TR rows.
-     *
-     * Assumes table is `str_translation` with columns: (locale, text).
-     * If your table is `tr`, adjust $table accordingly.
+     * Compute completion per target locale from TR rows (babel's str_tr table).
      *
      * @param list<string> $targets
      * @return array<string, array{total:int, translated:int, missing:int, pct:float}>
      */
     private function computeCompletion(array $targets): array
     {
+        $trTable = BabelSchema::STR_TR_TABLE;
+        $localeCol = BabelSchema::STR_TR_TARGET_LOCALE;
+        $textCol = BabelSchema::STR_TR_TEXT;
+
         // If no explicit targets, compute for all locales present in the table
         if ($targets === []) {
             $targets = array_values(array_filter(array_map('strval', $this->connection->fetchFirstColumn(
-                'SELECT DISTINCT locale FROM str_translation ORDER BY locale'
+                "SELECT DISTINCT {$localeCol} FROM {$trTable} ORDER BY {$localeCol}"
             ))));
         }
 
@@ -206,12 +208,12 @@ final class LinguaSyncBabelCommand
         }
 
         $rows = $this->connection->executeQuery(
-            "SELECT locale,
+            "SELECT {$localeCol} AS locale,
                     COUNT(*) AS total,
-                    SUM(CASE WHEN text IS NOT NULL AND text <> '' THEN 1 ELSE 0 END) AS translated
-               FROM str_translation
-              WHERE locale IN (?)
-              GROUP BY locale",
+                    SUM(CASE WHEN {$textCol} IS NOT NULL AND {$textCol} <> '' THEN 1 ELSE 0 END) AS translated
+               FROM {$trTable}
+              WHERE {$localeCol} IN (?)
+              GROUP BY {$localeCol}",
             [$targets],
             [ArrayParameterType::STRING]
         )->fetchAllAssociative();

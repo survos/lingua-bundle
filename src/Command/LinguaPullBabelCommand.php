@@ -5,6 +5,7 @@ namespace Survos\LinguaBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
 use LogicException;
+use Survos\BabelBundle\Entity\Str as BabelStr;
 use Survos\BabelBundle\Entity\StrTranslation as BabelStrTranslation;
 use Survos\Lingua\Core\Identity\HashUtil;
 use Survos\LinguaBundle\Service\LinguaClient;
@@ -88,15 +89,41 @@ final class LinguaPullBabelCommand
         $total = \count($rows);
         $io->writeln(sprintf('Untranslated rows: <info>%d</info>', $total));
 
+        // The server matches by Source.hash (a hash of the source text + source locale),
+        // not by our local str_code -- so resolve each code's source text/locale and
+        // compute the same hash the server used when the source was first pushed.
+        $codes = array_values(array_unique(array_filter(array_map(
+            static fn(array $r): string => (string) ($r['str_code'] ?? ''),
+            $rows
+        ))));
+        $strRows = $this->em->createQueryBuilder()
+            ->select('s.code AS code, s.source AS source, s.sourceLocale AS source_locale')
+            ->from($this->resolveStrClass(), 's')
+            ->andWhere('s.code IN (:codes)')
+            ->setParameter('codes', $codes)
+            ->getQuery()
+            ->getArrayResult();
+
+        $sourceByCode = [];
+        foreach ($strRows as $s) {
+            $sourceByCode[(string) $s['code']] = [
+                'source' => (string) $s['source'],
+                'sourceLocale' => (string) $s['source_locale'],
+            ];
+        }
+
         $byLocale = [];
+        $codeByHash = [];
         foreach ($rows as $r) {
             $key = (string) ($r['str_code'] ?? '');
             $loc = (string) ($r['locale'] ?? '');
-            if ($key === '') {
+            if ($key === '' || !isset($sourceByCode[$key])) {
                 continue;
             }
             $loc = $loc !== '' ? HashUtil::normalizeLocale($loc) : '';
-            $byLocale[$noLocaleGrouping ? '' : $loc][] = $key;
+            $hash = HashUtil::calcSourceKey($sourceByCode[$key]['source'], $sourceByCode[$key]['sourceLocale']);
+            $codeByHash[$hash] = $key;
+            $byLocale[$noLocaleGrouping ? '' : $loc][] = $hash;
         }
 
         if ($byLocale === []) {
@@ -137,13 +164,14 @@ final class LinguaPullBabelCommand
                     continue;
                 }
 
-                foreach ($chunk as $strCode) {
-                    if (!array_key_exists($strCode, $map)) {
+                foreach ($chunk as $hash) {
+                    if (!array_key_exists($hash, $map) || !isset($codeByHash[$hash])) {
                         $progress->advance(1);
                         continue;
                     }
 
-                    $translated = $map[$strCode];
+                    $strCode = $codeByHash[$hash];
+                    $translated = $map[$hash];
                     $translated = is_string($translated) ? $translated : (string) $translated;
                     if ($translated === '') {
                         $progress->advance(1);
@@ -191,6 +219,18 @@ final class LinguaPullBabelCommand
             throw new LogicException('Babel StrTranslation entity not available.');
         }
         return BabelStrTranslation::class;
+    }
+
+    private function resolveStrClass(): string
+    {
+        $appStr = 'App\\Entity\\Str';
+        if (class_exists($appStr)) {
+            return $appStr;
+        }
+        if (!class_exists(BabelStr::class)) {
+            throw new LogicException('Babel Str entity not available.');
+        }
+        return BabelStr::class;
     }
 
     /** @return list<string> */

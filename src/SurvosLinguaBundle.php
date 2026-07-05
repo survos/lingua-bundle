@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Survos\LinguaBundle;
 
 use Survos\LinguaBundle\Command\LinguaDemoCommand;
+use Survos\LinguaBundle\Command\LinguaHarvestCommand;
 use Survos\LinguaBundle\Command\LinguaPullBabelCommand;
 use Survos\LinguaBundle\Command\LinguaPushBabelCommand;
 use Survos\LinguaBundle\Command\LinguaStatusCommand;
@@ -54,6 +55,15 @@ final class SurvosLinguaBundle extends AbstractBundle
                 ->setPublic(true)
                 ->addTag('console.command');
         }
+
+        // Two commands (harvestRoutes, harvestMessages), one class -- they share the
+        // same upsert-into-babel logic and differ only in where the strings come from.
+        $builder->register(LinguaHarvestCommand::class)
+            ->setAutowired(true)
+            ->setAutoconfigured(true)
+            ->setPublic(true)
+            ->addTag('console.command', ['method' => 'harvestRoutes'])
+            ->addTag('console.command', ['method' => 'harvestMessages']);
 
         // Twig extension
         $builder->autowire(LinguaExtension::class)
