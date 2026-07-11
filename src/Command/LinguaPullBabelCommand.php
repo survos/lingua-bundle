@@ -23,8 +23,6 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 )]
 final class LinguaPullBabelCommand
 {
-    private const string STUB_ENGINE = 'babel';
-
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly LinguaClient $linguaClient,
@@ -43,8 +41,6 @@ final class LinguaPullBabelCommand
         ?int $limit = null,
         #[Option('Do not group by locale; pull all keys in one stream.')]
         bool $noLocaleGrouping = false,
-        #[Option('Update ALL untranslated rows regardless of StrTranslation.engine.')]
-        bool $allEngines = false,
     ): int {
         $trClass = $this->resolveBabelTrClass();
         $targetLocales = $this->parseTargets($targets);
@@ -55,21 +51,19 @@ final class LinguaPullBabelCommand
             $io->writeln('Provider engine: <info>'.$engine.'</info>');
         }
         $io->writeln('Batch: <info>'.$batch.'</info>');
-        $io->writeln('Engine filter: <info>'.($allEngines ? '(none)' : 'engine=babel').'</info>');
         if ($limit !== null) {
             $io->writeln('Global limit: <info>'.$limit.'</info>');
         }
 
+        // No engine filter: `engine` records real provenance (libre/deepl/...), not a
+        // "this is our stub" marker — the row is a pull candidate purely by having empty
+        // text. One StrTranslation row per (str_code, target_locale) is the current
+        // invariant, so there's no competing-candidate case to disambiguate here yet.
         $qb = $this->em->createQueryBuilder()
             ->select('t.strCode AS str_code, t.targetLocale AS locale')
             ->from($trClass, 't')
             ->andWhere('(t.text IS NULL OR t.text = \'\')')
             ->orderBy('t.strCode', 'ASC');
-
-        if (!$allEngines) {
-            $qb->andWhere('t.engine = :stubEngine')
-                ->setParameter('stubEngine', self::STUB_ENGINE);
-        }
 
         if ($targetLocales !== []) {
             $qb->andWhere('t.targetLocale IN (:locales)')
@@ -178,17 +172,19 @@ final class LinguaPullBabelCommand
                         continue;
                     }
 
+                    // Stamp the real provider engine (from --engine) alongside the text —
+                    // whichever engine actually produced this translation, not a placeholder.
+                    // Skip the SET when $engine is unknown rather than clobber it with null.
                     $dql = 'UPDATE '.$trClass.' t
-                            SET t.text = :text
-                            WHERE t.strCode = :strCode AND t.targetLocale = :locale'
-                        . (!$allEngines ? ' AND t.engine = :stubEngine' : '');
+                            SET t.text = :text' . ($engine !== null ? ', t.engine = :engine' : '') . '
+                            WHERE t.strCode = :strCode AND t.targetLocale = :locale';
 
                     $q = $this->em->createQuery($dql);
                     $q->setParameter('text', $translated);
                     $q->setParameter('strCode', $strCode);
                     $q->setParameter('locale', $locale);
-                    if (!$allEngines) {
-                        $q->setParameter('stubEngine', self::STUB_ENGINE);
+                    if ($engine !== null) {
+                        $q->setParameter('engine', $engine);
                     }
 
                     $affected = (int) $q->execute();
