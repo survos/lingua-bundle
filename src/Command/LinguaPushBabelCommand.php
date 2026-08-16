@@ -9,6 +9,7 @@ use LogicException;
 use Survos\BabelBundle\Entity\Str as BabelStr;
 use Survos\BabelBundle\Entity\StrTranslation as BabelStrTranslation;
 use Survos\Lingua\Contracts\Dto\BatchRequest;
+use Survos\LinguaBundle\Service\LinguaCall;
 use Survos\LinguaBundle\Service\LinguaClient;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -213,6 +214,21 @@ final class LinguaPushBabelCommand
             $totalTexts,
             $this->countGroups($groups)
         ));
+
+        // Narrate each request while it is in flight. A push of a few thousand strings is
+        // mostly time spent waiting on HTTP, and previously printed nothing between section
+        // headers, so a slow server and a hung one looked the same. The label is the JSON-RPC
+        // method name (translateBatch) or the REST route, so it says what is being asked for.
+        $this->linguaClient->onCall = static function (LinguaCall $call) use ($io): void {
+            $style = $call->phase === LinguaCall::PHASE_ERROR ? 'error' : 'comment';
+            if ($call->phase === LinguaCall::PHASE_START && !$io->isVerbose()) {
+                return; // one line per completed call by default; both lines when -v
+            }
+
+            $io->writeln(sprintf('  <%s>%s</%s>', $style, $call->describe(), $style));
+        };
+
+        $io->writeln(sprintf('Transport: <info>%s</info>', strtoupper($this->linguaClient->protocol)));
 
         $batches = 0;
         $totalAccepted = 0;

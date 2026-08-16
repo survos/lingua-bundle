@@ -40,6 +40,7 @@ final class SurvosLinguaBundle extends AbstractBundle
             ->setArgument('$apiKey', $apiKey)
             ->setArgument('$timeoutSeconds', $config['timeout'])
             ->setArgument('$proxyUrl', $config['proxy'] ?: null)
+            ->setArgument('$protocolName', $config['protocol'] ?: LinguaClient::PROTOCOL_REST)
             ->setPublic(true);
 
         // Shared-secret check for the server side. The same bundle is installed on lingua and
@@ -114,6 +115,18 @@ final class SurvosLinguaBundle extends AbstractBundle
                         . 'The same value belongs on lingua itself and on every app that calls it: clients send '
                         . 'it, lingua validates it. Empty disables the check (current behaviour).')
                     ->defaultValue('%env(default::LINGUA_API_KEY)%')
+                ->end()
+                // scalarNode, not enumNode: an env placeholder is still an unresolved string
+                // at config-build time, which an enum node rejects. LinguaClient normalises
+                // the value -- anything that is not exactly "rpc" means REST -- so an empty
+                // or mistyped var degrades to today's behaviour rather than failing the build.
+                ->scalarNode('protocol')
+                    ->info('"rest" (default) uses POST /batch-translate and /babel/pull. "rpc" uses '
+                        . 'JSON-RPC at POST /api/v1, which reports rejected payloads as real errors '
+                        . 'instead of {"status":"ok","response":{"error":...}} at HTTP 200. Requires a '
+                        . 'lingua deployed with /api/v1; not auto-detected, because probing costs a '
+                        . 'round trip and a silent fallback would hide a misconfigured server.')
+                    ->defaultValue('%env(default::LINGUA_PROTOCOL)%')
                 ->end()
                 ->integerNode('timeout')->defaultValue(10)->end()
                 ->scalarNode('proxy')

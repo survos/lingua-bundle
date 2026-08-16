@@ -8,6 +8,7 @@ use LogicException;
 use Survos\BabelBundle\Entity\Str as BabelStr;
 use Survos\BabelBundle\Entity\StrTranslation as BabelStrTranslation;
 use Survos\Lingua\Core\Identity\HashUtil;
+use Survos\LinguaBundle\Service\LinguaCall;
 use Survos\LinguaBundle\Service\LinguaClient;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -125,7 +126,25 @@ final class LinguaPullBabelCommand
             return Command::SUCCESS;
         }
 
+        // Show what each request is doing while it is in flight. A long pull spends nearly
+        // all its wall clock inside HTTP calls, and a bare progress bar that sits still for
+        // seconds is indistinguishable from a hung run. %message% carries the JSON-RPC method
+        // name (pullTranslations) or the REST route, plus the locale and the counts.
         $progress = new ProgressBar($io, $total);
+        $progress->setFormat(" %current%/%max% [%bar%] %percent:3s%%  %message%");
+        $progress->setMessage(sprintf('via %s', strtoupper($this->linguaClient->protocol)));
+
+        $this->linguaClient->onCall = static function (LinguaCall $call) use ($progress, $io): void {
+            $progress->setMessage($call->describe());
+            $progress->display();
+
+            if ($call->phase === LinguaCall::PHASE_ERROR) {
+                $progress->clear();
+                $io->warning($call->describe());
+                $progress->display();
+            }
+        };
+
         $progress->start();
 
         $updated = 0;

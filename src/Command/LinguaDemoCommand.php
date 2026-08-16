@@ -4,7 +4,9 @@ declare(strict_types=1);
 namespace Survos\LinguaBundle\Command;
 
 use Survos\Lingua\Contracts\Dto\BatchRequest;
+use Survos\LinguaBundle\Service\LinguaCall;
 use Survos\LinguaBundle\Service\LinguaClient;
+use Survos\LinguaBundle\Service\LinguaRpcException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\Option;
@@ -40,9 +42,30 @@ final class LinguaDemoCommand
         $forceDispatch ??= false;
         $transport ??= 'sync';
 
+        $io->writeln(sprintf(
+            'Server: <info>%s</info>  transport: <info>%s</info>',
+            $this->client->baseUri,
+            strtoupper($this->client->protocol),
+        ));
+
+        // Narrate the request while it is in flight, and name the operation -- over RPC that
+        // is the method name (translateBatch), over REST the route.
+        $this->client->onCall = static function (LinguaCall $call) use ($io): void {
+            $io->writeln(sprintf('  <comment>%s</comment>', $call->describe()));
+        };
+
         if ($now) {
-            $item = $this->client->translateNow($text, $target, $source, ['engine' => $engine], $noTranslate);
-            $io->writeln(($item->cached ? '[cached] ' : '[fresh] ').$item->text);
+            $item = $this->client->translateNow(
+                $text,
+                $target,
+                $source,
+                $engine,
+                $forceDispatch,
+                $transport,
+            );
+
+            $io->writeln((($item['cached'] ?? false) ? '[cached] ' : '[fresh] ') . ($item['text'] ?? ''));
+
             return Command::SUCCESS;
         }
 
@@ -51,39 +74,45 @@ final class LinguaDemoCommand
             target: [$target],
             texts: [$text],
             engine: $engine,
-            insertNewStrings: true,
+            // --no-translate means "tell me what you have, do not create anything".
+            insertNewStrings: !$noTranslate,
             forceDispatch: $forceDispatch,
             transport: $transport
         );
 
-//        $req = new BatchRequest(
-//            source: $from,
-//            target: [$to],
-//            texts: [$text],
-//            engine: $engine,
-//            insertNewStrings: true,
-//            forceDispatch: $force,
-//            transport: $transport
-//        );
-        dump($req);
-        $res = $this->client->requestBatch($req);
-        dd($res);
+        try {
+            $raw = $this->client->requestBatch($req);
+        } catch (LinguaRpcException $e) {
+            // Over RPC a rejected payload is an exception with a real code, rather than an
+            // "ok" envelope with an error buried in it.
+            $io->error(sprintf('%s (code %d)', $e->getMessage(), $e->getCode()));
 
-        if ($res->error) {
-            $io->error($res->error);
             return Command::FAILURE;
         }
 
-        if ($res->queued) {
-            $io->success(sprintf('Queued job %s (queued=%d)', $res->jobId, $res->queued));
-        } else {
-            $io->writeln("Already queued");
+        $res = (isset($raw['response']) && is_array($raw['response'])) ? $raw['response'] : $raw;
+
+        if (($res['error'] ?? null) || ($raw['error'] ?? null)) {
+            $io->error((string) ($res['error'] ?? $raw['error']));
+
+            return Command::FAILURE;
         }
 
-        foreach ($res->items as $item) {
-            $item = (object)$item;
-            foreach ($item->translations as $targetLocale => $translation) {
-                $io->writeln(sprintf('[%s→%s]%s', $item->locale, $targetLocale, $translation));
+        $queued = (int) ($res['queued'] ?? 0);
+        if ($queued > 0) {
+            $io->success(sprintf('Queued %d translation job(s)', $queued));
+        } else {
+            $io->writeln('Nothing queued (already translated, or --no-translate).');
+        }
+
+        foreach ((array) ($res['missing'] ?? []) as $missingText) {
+            $io->writeln(sprintf('<comment>missing:</comment> %s', (string) $missingText));
+        }
+
+        foreach ((array) ($res['items'] ?? []) as $item) {
+            $item = (array) $item;
+            foreach ((array) ($item['translations'] ?? []) as $targetLocale => $translation) {
+                $io->writeln(sprintf('[%s→%s] %s', $item['locale'] ?? '?', $targetLocale, (string) $translation));
             }
         }
 

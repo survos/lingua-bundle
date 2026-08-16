@@ -23,6 +23,25 @@ final class LinguaClient
 
     public const DEFAULT_SERVER = 'https://lingua.survos.com';
 
+    /** JSON-RPC endpoint. Versioned in the path, so v2 can coexist rather than replace. */
+    public const ROUTE_RPC = '/api/v1';
+
+    public const PROTOCOL_REST = 'rest';
+    public const PROTOCOL_RPC  = 'rpc';
+
+    public const METHOD_PULL  = 'pullTranslations';
+    public const METHOD_BATCH = 'translateBatch';
+
+    /**
+     * Called at the start and end of every request to lingua, with a {@see LinguaCall}.
+     *
+     * A public mutable hook rather than an event or an injected listener: the only consumers
+     * are the console commands in this bundle, they set it for the duration of one run, and
+     * an event dispatcher would mean apps wiring a subscriber to see progress they asked for
+     * on the command line. Left null, the client is silent as before.
+     */
+    public ?\Closure $onCall = null;
+
     /**
      * Every setting arrives as an explicit, typed argument, resolved by
      * {@see \Survos\LinguaBundle\SurvosLinguaBundle::loadExtension()} from the
@@ -41,7 +60,21 @@ final class LinguaClient
         private readonly ?string $apiKey = null,
         private readonly int $timeoutSeconds = 10,
         private readonly ?string $proxyUrl = null,
+        // 'rest' or 'rpc'. Defaults to rest so upgrading this bundle changes nothing for an
+        // app pointing at a lingua that predates /api/v1; flip it per app once the server is
+        // deployed. Deliberately not auto-detected -- probing costs a round trip, and a
+        // silent fallback would hide a misconfigured server rather than report it.
+        // Nullable for the same reason as $server: '%env(default::LINGUA_PROTOCOL)%' resolves
+        // to null when unset, and a `?:` in the extension runs against the *unresolved*
+        // placeholder string, which is truthy -- so the null arrives here regardless.
+        private readonly ?string $protocolName = null,
     ) {}
+
+    public string $protocol {
+        get => $this->protocolName === self::PROTOCOL_RPC ? self::PROTOCOL_RPC : self::PROTOCOL_REST;
+    }
+
+    public bool $usesRpc { get => $this->protocol === self::PROTOCOL_RPC; }
 
     /** null/'' when LINGUA_BASE_URI is unset, so fall back rather than build relative URLs. */
     public string $baseUri { get => rtrim($this->server ?: self::DEFAULT_SERVER, '/'); }
@@ -56,6 +89,107 @@ final class LinguaClient
     }
 
     /**
+     * One JSON-RPC call. Returns the `result` member.
+     *
+     * A JSON-RPC error is raised as {@see LinguaRpcException} carrying the code, rather than
+     * folded into the return value: -32602 for a payload lingua rejected and -32000 for a bad
+     * API key are things a caller must not mistake for an empty result. This is the whole
+     * reason the write path moved -- the REST route reports a rejected payload as
+     * {"status":"ok","response":{"error":...}} at HTTP 200.
+     *
+     * @param  array<string,mixed> $params
+     * @return array<string,mixed> the `result` member
+     * @throws LinguaRpcException
+     */
+    public function rpc(string $method, array $params, int $itemCount = 0, ?string $locale = null): array
+    {
+        $this->report(new LinguaCall($method, LinguaCall::PHASE_START, self::PROTOCOL_RPC, $itemCount, $locale));
+        $startedAt = microtime(true);
+
+        try {
+            $response = $this->http->request('POST', $this->baseUri . self::ROUTE_RPC, [
+                'json'    => ['jsonrpc' => '2.0', 'method' => $method, 'params' => $params, 'id' => '1'],
+                'headers' => $this->headers(json: true),
+                'timeout' => $this->timeout,
+                'proxy'   => $this->proxy,
+            ]);
+
+            $decoded = $response->toArray(false);
+        } catch (\Throwable $e) {
+            $this->reportError($method, $itemCount, $locale, $startedAt, $e->getMessage());
+
+            throw new LinguaRpcException(
+                sprintf('Transport error calling %s: %s', $method, $e->getMessage()),
+                previous: $e,
+            );
+        }
+
+        if (isset($decoded['error'])) {
+            $error = $decoded['error'];
+            $message = (string) ($error['message'] ?? 'Unknown JSON-RPC error');
+            $code = (int) ($error['code'] ?? 0);
+
+            $this->reportError($method, $itemCount, $locale, $startedAt, sprintf('%s (%d)', $message, $code));
+
+            throw new LinguaRpcException(sprintf('%s: %s', $method, $message), $code);
+        }
+
+        $result = $decoded['result'] ?? null;
+        if (!is_array($result)) {
+            $this->reportError($method, $itemCount, $locale, $startedAt, 'response had no result member');
+
+            throw new LinguaRpcException(sprintf('%s: response had no result member', $method));
+        }
+
+        $this->report(new LinguaCall(
+            $method,
+            LinguaCall::PHASE_DONE,
+            self::PROTOCOL_RPC,
+            $itemCount,
+            $locale,
+            $this->countResult($result),
+            (microtime(true) - $startedAt) * 1000,
+        ));
+
+        return $result;
+    }
+
+    /** Best-effort "how much came back", purely for the progress line. */
+    private function countResult(array $result): ?int
+    {
+        foreach (['translations', 'items'] as $key) {
+            if (isset($result[$key]) && is_array($result[$key])) {
+                return count($result[$key]);
+            }
+        }
+
+        return $result['queued'] ?? null;
+    }
+
+    private function report(LinguaCall $call): void
+    {
+        $this->logger->info('lingua ' . $call->describe());
+
+        if ($this->onCall !== null) {
+            ($this->onCall)($call);
+        }
+    }
+
+    private function reportError(string $method, int $itemCount, ?string $locale, float $startedAt, string $error): void
+    {
+        $this->report(new LinguaCall(
+            $method,
+            LinguaCall::PHASE_ERROR,
+            $this->protocol,
+            $itemCount,
+            $locale,
+            null,
+            (microtime(true) - $startedAt) * 1000,
+            $error,
+        ));
+    }
+
+    /**
      * @param list<string> $hashes
      * @return array<string,string> map[strCode => translatedText]
      */
@@ -65,6 +199,74 @@ final class LinguaClient
         if ($hashes === []) {
             return [];
         }
+
+        if ($this->usesRpc) {
+            return $this->pullViaRpc($hashes, $locale, $engine);
+        }
+
+        return $this->pullViaRest($hashes, $locale, $engine);
+    }
+
+    /**
+     * @param  list<string> $hashes
+     * @return array<string,string>
+     * @throws LinguaRpcException
+     */
+    private function pullViaRpc(array $hashes, ?string $locale, ?string $engine): array
+    {
+        $params = ['hashes' => $hashes];
+        if ($locale) {
+            $params['locale'] = $locale;
+        }
+        if ($engine) {
+            $params['engine'] = $engine;
+        }
+
+        $result = $this->rpc(self::METHOD_PULL, $params, count($hashes), $locale);
+
+        $translations = $result['translations'] ?? [];
+        if (!is_array($translations)) {
+            return [];
+        }
+
+        // `missing` is the reason this method exists over RPC: it separates "lingua has never
+        // seen this hash" from "lingua has it but has not translated it yet", which the REST
+        // response cannot express -- both are simply absent from the map. Logged rather than
+        // returned, because the return shape is shared with the REST path and callers index
+        // it by hash; surfacing it properly is a caller-facing API change for another day.
+        $missing = $result['missing'] ?? [];
+        if (is_array($missing) && $missing !== []) {
+            $this->logger->debug('lingua pullTranslations: not yet translated', [
+                'count'  => count($missing),
+                'locale' => $locale,
+            ]);
+        }
+
+        $out = [];
+        foreach ($translations as $hash => $text) {
+            if (!is_string($hash) || $hash === '' || $text === null) {
+                continue;
+            }
+            $out[$hash] = is_string($text) ? $text : (string) $text;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<string> $hashes
+     * @return array<string,string>
+     */
+    private function pullViaRest(array $hashes, ?string $locale, ?string $engine): array
+    {
+        $this->report(new LinguaCall(
+            self::ROUTE_PULL,
+            LinguaCall::PHASE_START,
+            self::PROTOCOL_REST,
+            count($hashes),
+            $locale,
+        ));
+        $startedAt = microtime(true);
 
         $query = [];
         if ($locale) {
@@ -111,6 +313,16 @@ final class LinguaClient
             $out[$k] = is_string($v) ? $v : (string) $v;
         }
 
+        $this->report(new LinguaCall(
+            self::ROUTE_PULL,
+            LinguaCall::PHASE_DONE,
+            self::PROTOCOL_REST,
+            count($hashes),
+            $locale,
+            count($out),
+            (microtime(true) - $startedAt) * 1000,
+        ));
+
         return $out;
     }
 
@@ -129,6 +341,13 @@ final class LinguaClient
     {
         $payload = $this->batchRequestPayload($req);
 
+        // The in-process short-circuit below only exists for running lingua against itself,
+        // so it stays on the REST route regardless of protocol -- there is no HTTP round trip
+        // to save, and the sub-request needs a real controller.
+        if ($this->usesRpc && !$this->isLocalSubRequest($request)) {
+            return $this->requestBatchViaRpc($req);
+        }
+
         $params = [
             'timeout'  => $this->timeout,
             'proxy'    => $this->proxy,
@@ -137,7 +356,7 @@ final class LinguaClient
         ];
 
         // Local short-circuit: call route handler in-process so you get real PHP stack traces.
-        if ($request && parse_url($this->baseUri, PHP_URL_HOST) === $request->getHost())
+        if ($this->isLocalSubRequest($request))
         {
             $sub = HttpRequest::create(
                 self::ROUTE_BATCH,
@@ -168,13 +387,37 @@ final class LinguaClient
             }
         }
 
-        // Real HTTP
+        // Real HTTP. Narrated the same way the RPC path is, so switching protocol changes the
+        // wire format and the error handling, not whether you can see what is happening.
+        $locale = is_array($req->target) ? implode(',', $req->target) : (string) $req->target;
+        $this->report(new LinguaCall(
+            self::ROUTE_BATCH,
+            LinguaCall::PHASE_START,
+            self::PROTOCOL_REST,
+            count($req->texts),
+            $locale,
+        ));
+        $startedAt = microtime(true);
+
         try {
             $response = $this->http->request('POST', $this->baseUri . self::ROUTE_BATCH, $params);
             $status   = $response->getStatusCode();
             $content  = $response->getContent(false);
 
             $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+            if (is_array($decoded)) {
+                $inner = (isset($decoded['response']) && is_array($decoded['response'])) ? $decoded['response'] : $decoded;
+                $this->report(new LinguaCall(
+                    self::ROUTE_BATCH,
+                    LinguaCall::PHASE_DONE,
+                    self::PROTOCOL_REST,
+                    count($req->texts),
+                    $locale,
+                    $this->countResult($inner),
+                    (microtime(true) - $startedAt) * 1000,
+                ));
+            }
+
             if (!is_array($decoded)) {
                 $this->logger->error('LinguaClient non-JSON response', [
                     'status' => $status,
@@ -186,6 +429,8 @@ final class LinguaClient
             return $decoded;
         } catch (ExceptionInterface $e) {
             // This is the important part: expose the real exception and any partial response.
+            $this->reportError(self::ROUTE_BATCH, count($req->texts), $locale, $startedAt, $e->getMessage());
+
             $this->logger->error('LinguaClient HTTP exception', [
                 'exception' => $e::class,
                 'message'   => $e->getMessage(),
@@ -229,6 +474,43 @@ final class LinguaClient
             'cached' => false,
             'meta'   => [],
         ];
+    }
+
+    private function isLocalSubRequest(?Request $request): bool
+    {
+        return $request !== null && parse_url($this->baseUri, PHP_URL_HOST) === $request->getHost();
+    }
+
+    /**
+     * The write path over JSON-RPC.
+     *
+     * Returns the same {status, response} shape the REST path returns, because callers --
+     * LinguaPushBabelCommand among them -- already read it that way. The shape is
+     * reconstructed here rather than sent by the server: translateBatch deliberately drops
+     * `status`, since JSON-RPC states success by returning `result` instead of `error`.
+     *
+     * A rejection is an exception now, not a value. That is the substantive difference: over
+     * REST an invalid payload came back as {"status":"ok","response":{"error":...}} at HTTP
+     * 200 and a caller that only checked `status` treated it as success.
+     *
+     * @return array<string,mixed>
+     * @throws LinguaRpcException
+     */
+    private function requestBatchViaRpc(BatchRequest $req): array
+    {
+        $params = array_filter(
+            $this->batchRequestPayload($req),
+            static fn(mixed $v): bool => $v !== null,
+        );
+
+        $result = $this->rpc(
+            self::METHOD_BATCH,
+            $params,
+            count($req->texts),
+            is_array($req->target) ? implode(',', $req->target) : (string) $req->target,
+        );
+
+        return ['status' => 'ok', 'response' => $result];
     }
 
     private function batchRequestPayload(BatchRequest $req): array
