@@ -12,6 +12,7 @@ use Survos\LinguaBundle\Command\LinguaSyncBabelCommand;
 use Survos\LinguaBundle\Controller\LinguaController;
 use Survos\LinguaBundle\Controller\LinguaSandboxController;
 use Survos\LinguaBundle\Controller\LinguaWebhookController;
+use Survos\LinguaBundle\Security\LinguaKeyGuard;
 use Survos\LinguaBundle\Service\ApiPlatformDataFetcher;
 use Survos\LinguaBundle\Service\LinguaClient;
 use Survos\LinguaBundle\Twig\Extension\LinguaExtension;
@@ -25,10 +26,28 @@ final class SurvosLinguaBundle extends AbstractBundle
 {
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
+        // Configuration is resolved HERE, once, and handed to services as explicit typed
+        // arguments. Services do not read env vars: no #[Autowire('%env(...)%')] in a
+        // constructor, and no opaque $config array for a service to fish keys out of at call
+        // time. Reading configuration is the extension's job -- a service should be handed
+        // values it can rely on.
+        $apiKey = $config['api_key'] ?: null;
+
         // Client service
         $builder->autowire(LinguaClient::class)
             ->setAutoconfigured(true)
-            ->setArgument('$config', $config)
+            ->setArgument('$server', $config['server'])
+            ->setArgument('$apiKey', $apiKey)
+            ->setArgument('$timeoutSeconds', $config['timeout'])
+            ->setArgument('$proxyUrl', $config['proxy'] ?: null)
+            ->setPublic(true);
+
+        // Shared-secret check for the server side. The same bundle is installed on lingua and
+        // on every app that calls it, so one setting -- survos_lingua.api_key, from
+        // LINGUA_API_KEY -- is both the key clients send and the key lingua validates.
+        $builder->autowire(LinguaKeyGuard::class)
+            ->setAutoconfigured(true)
+            ->setArgument('$expectedKey', $apiKey)
             ->setPublic(true);
 
         foreach ([ApiPlatformDataFetcher::class] as $class) {
@@ -45,6 +64,9 @@ final class SurvosLinguaBundle extends AbstractBundle
                 ->setAutoconfigured(true)
                 ->setPublic(true);
         }
+
+        $builder->getDefinition(LinguaWebhookController::class)
+            ->setArgument('$webhookKey', $config['webhook_key'] ?: null);
 
         // Commands
         foreach ([LinguaDemoCommand::class,
@@ -83,9 +105,26 @@ final class SurvosLinguaBundle extends AbstractBundle
     {
         $definition->rootNode()
             ->children()
-                ->scalarNode('server')->defaultValue('%env(default::LINGUA_BASE_URI)%')->end()
-                ->scalarNode('api_key')->defaultValue('%env(default::LINGUA_API_KEY)%')->end()
+                ->scalarNode('server')
+                    ->info('Base URI of the lingua server. Empty falls back to ' . LinguaClient::DEFAULT_SERVER . '.')
+                    ->defaultValue('%env(default::LINGUA_BASE_URI)%')
+                ->end()
+                ->scalarNode('api_key')
+                    ->info('Shared secret for the lingua API -- NOT babel/LibreTranslate, which needs no key. '
+                        . 'The same value belongs on lingua itself and on every app that calls it: clients send '
+                        . 'it, lingua validates it. Empty disables the check (current behaviour).')
+                    ->defaultValue('%env(default::LINGUA_API_KEY)%')
+                ->end()
                 ->integerNode('timeout')->defaultValue(10)->end()
+                ->scalarNode('proxy')
+                    ->info('HTTP proxy override. Empty auto-selects the symfony proxy for a .wip host.')
+                    ->defaultValue('%env(default::LINGUA_PROXY)%')
+                ->end()
+                ->scalarNode('webhook_key')
+                    ->info('Optional separate secret for the inbound /_lingua/webhook endpoint. '
+                        . 'Empty disables the check.')
+                    ->defaultValue('%env(default::LINGUA_WEBHOOK_KEY)%')
+                ->end()
             ->end();
     }
 }

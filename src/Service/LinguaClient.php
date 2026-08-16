@@ -15,22 +15,39 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 final class LinguaClient
 {
-    public const ROUTE_BATCH  = '/batch-translate';
-    public const ROUTE_PULL   = '/babel/pull';
-    public const ROUTE_SOURCE = '/source';
-    public const ROUTE_JOB    = '/job';
+    // Literals, not Survos\Lingua\Contracts\Http\LinguaApi::ROUTE_*. Apps run on published
+    // vendor copies, so a stale lingua-contracts would silently point this client at a
+    // different path. Contracts carries the same values; they are checked, not shared.
+    public const ROUTE_BATCH = '/batch-translate';
+    public const ROUTE_PULL  = '/babel/pull';
 
+    public const DEFAULT_SERVER = 'https://lingua.survos.com';
+
+    /**
+     * Every setting arrives as an explicit, typed argument, resolved by
+     * {@see \Survos\LinguaBundle\SurvosLinguaBundle::loadExtension()} from the
+     * `survos_lingua` config tree. Nothing here reads an env var: no
+     * `#[Autowire('%env(...)%')]`, and no opaque `$config` array to fish keys out of at
+     * call time. Configuration is the bundle extension's job; a service should receive
+     * values, not go looking for them.
+     */
     public function __construct(
         private readonly HttpClientInterface $http,
         private readonly HttpKernelInterface $httpKernel,
         private readonly LoggerInterface $logger,
-        #[Autowire(param: 'lingua.config')] private array $config = [],
+        // Nullable because `%env(default::LINGUA_BASE_URI)%` resolves to null, not '',
+        // when the variable is unset.
+        private readonly ?string $server = null,
+        private readonly ?string $apiKey = null,
+        private readonly int $timeoutSeconds = 10,
+        private readonly ?string $proxyUrl = null,
     ) {}
 
-    public string $baseUri { get => rtrim((string)($this->config['server'] ?? 'https://lingua.survos.com'), '/'); }
-    public ?string $apiToken { get => isset($this->config['api_key']) ? (string) $this->config['api_key'] : null; }
-    public ?string $proxy { get => $this->config['proxy'] ?? (str_contains($this->baseUri, '.wip') ? 'http://127.0.0.1:7080' : null); }
-    public int $timeout { get => (int)($this->config['timeout'] ?? 10); }
+    /** null/'' when LINGUA_BASE_URI is unset, so fall back rather than build relative URLs. */
+    public string $baseUri { get => rtrim($this->server ?: self::DEFAULT_SERVER, '/'); }
+    public ?string $apiToken { get => $this->apiKey ?: null; }
+    public ?string $proxy { get => $this->proxyUrl ?: (str_contains($this->baseUri, '.wip') ? 'http://127.0.0.1:7080' : null); }
+    public int $timeout { get => $this->timeoutSeconds; }
 
     #[\Deprecated('Use Survos\\Lingua\\Core\\Identity\\HashUtil::calcSourceKey()')]
     public static function calcHash(string $string, string $locale): string
@@ -101,18 +118,6 @@ final class LinguaClient
     public static function textToCodes(array $texts, string $target): array
     {
         return array_map(static fn(string $s) => HashUtil::calcSourceKey($s, $target), $texts);
-    }
-
-    public function getSource(string $hash): array
-    {
-        $res = $this->http->request('GET', $this->baseUri . self::ROUTE_SOURCE . '/' . $hash . '.json', [
-            'timeout'  => $this->timeout,
-            'proxy'    => $this->proxy,
-            'headers'  => $this->headers(),
-        ]);
-
-        $data = $res->toArray(false);
-        return is_array($data) ? $data : [];
     }
 
     /**
@@ -193,17 +198,6 @@ final class LinguaClient
                 'exception' => $e::class,
             ];
         }
-    }
-
-    public function getJobStatus(string $jobId): array
-    {
-        $res = $this->http->request('GET', $this->baseUri . self::ROUTE_JOB . '/' . $jobId . '.json', [
-            'timeout'  => $this->timeout,
-            'proxy'    => $this->proxy,
-        ]);
-
-        $data = $res->toArray(false);
-        return is_array($data) ? $data : [];
     }
 
     public function translateNow(string $text, string $to, ?string $from = null, ?string $engine = null, bool $forceDispatch = false, ?string $transport = null): array
