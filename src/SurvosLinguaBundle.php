@@ -11,10 +11,12 @@ use Survos\LinguaBundle\Command\LinguaStatusCommand;
 use Survos\LinguaBundle\Command\LinguaSyncBabelCommand;
 use Survos\LinguaBundle\Controller\LinguaController;
 use Survos\LinguaBundle\Controller\LinguaSandboxController;
-use Survos\LinguaBundle\Controller\LinguaWebhookController;
+use Survos\LinguaBundle\RemoteEvent\TranslationRemoteEventConsumer;
 use Survos\LinguaBundle\Security\LinguaKeyGuard;
 use Survos\LinguaBundle\Service\ApiPlatformDataFetcher;
 use Survos\LinguaBundle\Service\LinguaClient;
+use Survos\LinguaBundle\Service\TranslationUpdateApplier;
+use Survos\LinguaBundle\Webhook\LinguaWebhookRequestParser;
 use Survos\LinguaBundle\Twig\Extension\LinguaExtension;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -41,6 +43,7 @@ final class SurvosLinguaBundle extends AbstractBundle
             ->setArgument('$timeoutSeconds', $config['timeout'])
             ->setArgument('$proxyUrl', $config['proxy'] ?: null)
             ->setArgument('$protocolName', $config['protocol'] ?: LinguaClient::PROTOCOL_REST)
+            ->setArgument('$callbackUrl', $config['callback_url'] ?: null)
             ->setPublic(true);
 
         // Shared-secret check for the server side. The same bundle is installed on lingua and
@@ -58,7 +61,7 @@ final class SurvosLinguaBundle extends AbstractBundle
         }
 
         // Controllers
-        foreach ([LinguaController::class, LinguaSandboxController::class, LinguaWebhookController::class] as $controllerClass) {
+        foreach ([LinguaController::class, LinguaSandboxController::class] as $controllerClass) {
             $builder->autowire($controllerClass)
                 ->addTag('controller.service_arguments')
                 ->setAutowired(true)
@@ -66,8 +69,31 @@ final class SurvosLinguaBundle extends AbstractBundle
                 ->setPublic(true);
         }
 
-        $builder->getDefinition(LinguaWebhookController::class)
-            ->setArgument('$webhookKey', $config['webhook_key'] ?: null);
+        // Inbound translation.completed webhook. Registered only when the components are
+        // installed: an app that merely pushes strings and pulls them back does not need
+        // symfony/webhook, and these classes would have no parent/interface to resolve.
+        //
+        // A LinguaWebhookController used to sit here instead, checking an X-Api-Key by hand.
+        // It was never reachable — its route was not registered, and the
+        // `lingua.webhook_key` parameter it originally read had never been defined anywhere
+        // either. What replaces it is FrameworkBundle's own /webhook/{name} endpoint plus the
+        // parser below, which verifies an HMAC over the body rather than comparing a bearer
+        // token. See survos-sites/mediary#8.
+        if (class_exists(\Symfony\Component\Webhook\Client\AbstractRequestParser::class)
+            && interface_exists(\Symfony\Component\RemoteEvent\Consumer\ConsumerInterface::class)
+        ) {
+            $builder->autowire(LinguaWebhookRequestParser::class)
+                ->setAutoconfigured(true)
+                // Public: framework.webhook.routing.lingua.service names this by FQCN, and
+                // the WebhookController resolves it through a service locator.
+                ->setPublic(true);
+
+            $builder->autowire(TranslationUpdateApplier::class)
+                ->setAutoconfigured(true);
+
+            $builder->autowire(TranslationRemoteEventConsumer::class)
+                ->setAutoconfigured(true);
+        }
 
         // Commands
         foreach ([LinguaDemoCommand::class,
@@ -133,11 +159,17 @@ final class SurvosLinguaBundle extends AbstractBundle
                     ->info('HTTP proxy override. Empty auto-selects the symfony proxy for a .wip host.')
                     ->defaultValue('%env(default::LINGUA_PROXY)%')
                 ->end()
-                ->scalarNode('webhook_key')
-                    ->info('Optional separate secret for the inbound /_lingua/webhook endpoint. '
-                        . 'Empty disables the check.')
-                    ->defaultValue('%env(default::LINGUA_WEBHOOK_KEY)%')
+                ->scalarNode('callback_url')
+                    ->info('Absolute URL of THIS app\'s /webhook/lingua endpoint, e.g. '
+                        . 'https://zm.wip/webhook/lingua. Sent with every push so the server '
+                        . 'announces translations instead of making us poll with lingua:pull. '
+                        . 'Empty keeps the polling behaviour.')
+                    ->defaultValue('%env(default::LINGUA_CALLBACK_URL)%')
                 ->end()
+                // NOTE: `webhook_key` was removed. It configured LinguaWebhookController's
+                // hand-rolled X-Api-Key check, and both are gone — the inbound secret is now
+                // framework.webhook.routing.lingua.secret (LINGUA_WEBHOOK_SECRET), which is
+                // where symfony/webhook expects it and where it is a `#[\SensitiveParameter]`.
             ->end();
     }
 }

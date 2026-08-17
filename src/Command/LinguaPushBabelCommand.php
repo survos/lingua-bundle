@@ -163,9 +163,14 @@ final class LinguaPushBabelCommand
         }
 
         $sql = sprintf(
+            // str_code rides along so the server can echo it back in the translation.completed
+            // webhook. It is OUR key for the string; without it the server can only identify a
+            // translation by its own content hash, which is what forces lingua:pull to rebuild
+            // a hash→code map on every run.
             'SELECT %1$s.%2$s AS target_locale,
                     %3$s.%4$s AS source_locale,
-                    %3$s.%5$s AS original
+                    %3$s.%5$s AS original,
+                    %3$s.%7$s AS str_code
                FROM %1$s
                JOIN %3$s ON %1$s.%6$s = %3$s.%7$s
               WHERE %8$s
@@ -191,15 +196,19 @@ final class LinguaPushBabelCommand
         }
 
         // Group by (source_locale, target_locale)
-        $groups = []; // [$src][$target] = list<string originals>
+        // Each entry is [text, str_code] rather than a bare string, so the code survives the
+        // grouping and chunking and can be sent alongside its text. A parallel array keyed by
+        // position would be the same information carried in two places waiting to drift.
+        $groups = []; // [$src][$target] = list<array{0:string text, 1:string code}>
         foreach ($rows as $r) {
             $tgt = trim((string)($r['target_locale'] ?? ''));
             $src = trim((string)($r['source_locale'] ?? ''));
             $txt = (string)($r['original'] ?? '');
+            $code = (string)($r['str_code'] ?? '');
             if ($tgt === '' || $src === '' || $txt === '') {
                 continue;
             }
-            $groups[$src][$tgt][] = $txt;
+            $groups[$src][$tgt][] = [$txt, $code];
         }
 
         $totalTexts = 0;
@@ -244,11 +253,15 @@ final class LinguaPushBabelCommand
                     $io,
                     $src,
                     [$tgt],
-                    $chunk,
+                    array_column($chunk, 0),
                     $engine,
                     $transport,
                     $forceDispatch,
-                    $showServer
+                    $showServer,
+                    // NOT filtered: refs are positional with texts, so dropping an empty one
+                    // would shift every later ref onto the wrong string. The server ignores
+                    // blanks itself (a text with no ref is translated but not subscribed).
+                    array_column($chunk, 1),
                 );
                 $batches++;
 
@@ -314,6 +327,8 @@ final class LinguaPushBabelCommand
 
         /** @var array<string, list<string>> $textsBySrc */
         $textsBySrc = [];
+        /** @var array<string, list<string>> $refsBySrc positionally aligned with $textsBySrc */
+        $refsBySrc = [];
         /** @var array<string, int> $countsBySrc */
         $countsBySrc = [];
 
@@ -327,7 +342,7 @@ final class LinguaPushBabelCommand
         $hadError = false;
 
         foreach ($iter as $str) {
-            /** @var object{source:string,sourceLocale?:string} $str */
+            /** @var object{source:string,sourceLocale?:string,code?:string} $str */
             $original = (string) ($str->source ?? '');
             if ($original === '') {
                 continue;
@@ -335,11 +350,12 @@ final class LinguaPushBabelCommand
 
             $srcLocale = (string) ($str->sourceLocale ?? 'en');
             $textsBySrc[$srcLocale][] = $original;
+            $refsBySrc[$srcLocale][] = (string) ($str->code ?? '');
             $countsBySrc[$srcLocale] = ($countsBySrc[$srcLocale] ?? 0) + 1;
             $total++;
 
             if ($countsBySrc[$srcLocale] >= $batch) {
-                $r = $this->sendBatch($io, $srcLocale, $targetLocales, $textsBySrc[$srcLocale], $engine, $transport, $forceDispatch, $showServer);
+                $r = $this->sendBatch($io, $srcLocale, $targetLocales, $textsBySrc[$srcLocale], $engine, $transport, $forceDispatch, $showServer, $refsBySrc[$srcLocale]);
                 $batches++;
 
                 $totalAccepted += $r['accepted'];
@@ -348,6 +364,7 @@ final class LinguaPushBabelCommand
                 $hadError      = $hadError || $r['error'] !== null;
 
                 $textsBySrc[$srcLocale] = [];
+                $refsBySrc[$srcLocale] = [];
                 $countsBySrc[$srcLocale] = 0;
             }
         }
@@ -357,7 +374,7 @@ final class LinguaPushBabelCommand
                 continue;
             }
 
-            $r = $this->sendBatch($io, $srcLocale, $targetLocales, $texts, $engine, $transport, $forceDispatch, $showServer);
+            $r = $this->sendBatch($io, $srcLocale, $targetLocales, $texts, $engine, $transport, $forceDispatch, $showServer, $refsBySrc[$srcLocale] ?? []);
             $batches++;
 
             $totalAccepted += $r['accepted'];
@@ -456,7 +473,17 @@ final class LinguaPushBabelCommand
         ?string $engine,
         ?string $transport,
         bool $forceDispatch,
-        bool $showServer
+        bool $showServer,
+        /**
+         * Our own key per text, positionally aligned with $texts (babel `Str.code`).
+         *
+         * Empty means "do not subscribe" — the batch is still translated and still pullable,
+         * it just will not be announced. LinguaClient pairs this with the configured
+         * callback_url and omits both when either is missing.
+         *
+         * @var list<string>
+         */
+        array $refs = [],
     ): array {
         $count = count($texts);
         if ($count === 0) {
@@ -485,7 +512,8 @@ final class LinguaPushBabelCommand
             engine: $engine,
             insertNewStrings: true,
             forceDispatch: $forceDispatch,
-            transport: $transport
+            transport: $transport,
+            refs: $refs,
         );
 
         $accepted = 0;

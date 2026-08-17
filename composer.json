@@ -25,11 +25,18 @@
         "symfony/http-client": "^8.1",
         "survos/lingua-contracts": "^2.5",
         "survos/lingua-core": "^2.5",
-        "survos/babel-bundle": "^2.10"
+        "survos/babel-bundle": "^2.10",
+        "survos/kit-bundle": "^2.6",
+        "symfony/remote-event": "^8.1",
+        "symfony/webhook": "^8.1"
     },
     "require-dev": {
         "symfony/phpunit-bridge": "^8.1",
-        "doctrine/orm": "^3.5"
+        "doctrine/orm": "^3.5",
+        "symfony/messenger": "^8.1"
+    },
+    "suggest": {
+        "symfony/messenger": "Required to actually receive translation.completed — the webhook endpoint dispatches a ConsumeRemoteEventMessage."
     },
     "autoload": {
         "psr-4": {

@@ -68,6 +68,13 @@ final class LinguaClient
         // to null when unset, and a `?:` in the extension runs against the *unresolved*
         // placeholder string, which is truthy -- so the null arrives here regardless.
         private readonly ?string $protocolName = null,
+        /**
+         * This app's own /webhook/lingua URL, sent with every push so the server announces
+         * finished translations instead of leaving us to poll. Null (LINGUA_CALLBACK_URL
+         * unset) keeps the polling contract exactly as it was — nothing subscribes, and
+         * lingua:pull remains the way to collect results.
+         */
+        private readonly ?string $callbackUrl = null,
     ) {}
 
     public string $protocol {
@@ -515,7 +522,7 @@ final class LinguaClient
 
     private function batchRequestPayload(BatchRequest $req): array
     {
-        return [
+        $payload = [
             'source'           => $req->source,
             'target'           => $req->target,
             'texts'            => $req->texts,
@@ -524,6 +531,23 @@ final class LinguaClient
             'forceDispatch'    => $req->forceDispatch,
             'transport'        => $req->transport,
         ];
+
+        // Ask to be TOLD when these finish instead of polling for them. Falls back to the
+        // bundle's configured callback_url, so an app that has set LINGUA_CALLBACK_URL gets
+        // webhooks without every caller having to pass one; an explicit url on the request
+        // still wins.
+        //
+        // Both keys are OMITTED rather than sent as null when unused. `refs` is typed `array`
+        // on the server's BatchRequest, so a literal null fails #[MapRequestPayload] with a
+        // type error — and an older lingua that predates these fields ignores absent keys but
+        // would reject unexpected nulls.
+        $callbackUrl = $req->callbackUrl ?: $this->callbackUrl;
+        if ($req->refs !== [] && ($callbackUrl ?? '') !== '') {
+            $payload['callbackUrl'] = $callbackUrl;
+            $payload['refs'] = $req->refs;
+        }
+
+        return $payload;
     }
 
     private function headers(bool $json = false): array
