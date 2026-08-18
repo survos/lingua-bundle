@@ -144,7 +144,7 @@ final class LinguaPushBabelCommand
         $cTrEngine  = $mTr->getColumnName('engine');
 
         $pf = $conn->getDatabasePlatform();
-        $q = static fn(string $id) => $pf->quoteIdentifier($id);
+        $q = static fn(string $id) => $pf->quoteSingleIdentifier($id);
 
         $where = sprintf('(%1$s IS NULL OR %1$s = \'\')', $q($cTrText));
         $params = [];
