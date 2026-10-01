@@ -5,6 +5,8 @@ namespace Survos\LinguaBundle;
 
 use Survos\LinguaBundle\Command\LinguaDemoCommand;
 use Survos\LinguaBundle\Command\LinguaHarvestCommand;
+use Survos\LinguaBundle\Command\LinguaHarvestMessagesCommand;
+use Survos\LinguaBundle\Command\LinguaHarvestRoutesCommand;
 use Survos\LinguaBundle\Command\LinguaPullBabelCommand;
 use Survos\LinguaBundle\Command\LinguaPushBabelCommand;
 use Survos\LinguaBundle\Command\LinguaStatusCommand;
@@ -96,7 +98,7 @@ final class SurvosLinguaBundle extends AbstractBundle
         }
 
         // Commands
-        foreach ([LinguaDemoCommand::class,
+        foreach ([LinguaDemoCommand::class, LinguaHarvestMessagesCommand::class, LinguaHarvestRoutesCommand::class,
                      LinguaPushBabelCommand::class, LinguaPullBabelCommand::class, LinguaSyncBabelCommand::class] as $commandClass) {
             $builder->register($commandClass)
                 ->setAutowired(true)
@@ -105,14 +107,8 @@ final class SurvosLinguaBundle extends AbstractBundle
                 ->addTag('console.command');
         }
 
-        // Two commands (harvestRoutes, harvestMessages), one class -- they share the
-        // same upsert-into-babel logic and differ only in where the strings come from.
-        $builder->register(LinguaHarvestCommand::class)
-            ->setAutowired(true)
-            ->setAutoconfigured(true)
-            ->setPublic(true)
-            ->addTag('console.command', ['method' => 'harvestRoutes'])
-            ->addTag('console.command', ['method' => 'harvestMessages']);
+        // Shared harvest implementation, invoked by separate commands for Symfony 7.4 support.
+        $builder->autowire(LinguaHarvestCommand::class);
 
         // Twig extension
         $builder->autowire(LinguaExtension::class)

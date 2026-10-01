@@ -5,8 +5,6 @@ namespace Survos\LinguaBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\BabelBundle\Entity\Str;
-use Symfony\Component\Console\Attribute\AsCommand;
-use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -43,10 +41,6 @@ final class LinguaHarvestCommand
     ) {
     }
 
-    #[AsCommand(
-        'lingua:harvest:routes',
-        'Harvest route names into babel Str storage (context "routing"), humanized for translation.',
-    )]
     public function harvestRoutes(SymfonyStyle $io): int
     {
         [$created, $updated, $unchanged] = [0, 0, 0];
@@ -69,13 +63,8 @@ final class LinguaHarvestCommand
         return Command::SUCCESS;
     }
 
-    #[AsCommand(
-        'lingua:harvest:messages',
-        'Harvest |trans keys used in templates into babel Str storage, one context per domain.',
-    )]
     public function harvestMessages(
         SymfonyStyle $io,
-        #[Option('Comma-separated domains to harvest (allowlist -- default: messages,system). Never point this at a vendor bundle\'s own domain.')]
         ?string $domains = null,
     ): int {
         $allowedDomains = $domains !== null

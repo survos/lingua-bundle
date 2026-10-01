@@ -16,24 +16,24 @@
     "type": "symfony-bundle",
     "require": {
         "php": "^8.5",
-        "symfony/config": "^8.1",
-        "symfony/dependency-injection": "^8.1",
-        "symfony/http-kernel": "^8.1",
-        "symfony/framework-bundle": "^8.1",
-        "symfony/routing": "^8.1",
-        "symfony/console": "^8.1",
-        "symfony/http-client": "^8.1",
+        "symfony/config": "^7.4||^8.1",
+        "symfony/dependency-injection": "^7.4||^8.1",
+        "symfony/http-kernel": "^7.4||^8.1",
+        "symfony/framework-bundle": "^7.4||^8.1",
+        "symfony/routing": "^7.4||^8.1",
+        "symfony/console": "^7.4||^8.1",
+        "symfony/http-client": "^7.4||^8.1",
         "survos/lingua-contracts": "^2.5",
         "survos/lingua-core": "^2.5",
         "survos/babel-bundle": "^2.10",
         "survos/kit-bundle": "^2.6",
-        "symfony/remote-event": "^8.1",
-        "symfony/webhook": "^8.1"
+        "symfony/remote-event": "^7.4||^8.1",
+        "symfony/webhook": "^7.4||^8.1"
     },
     "require-dev": {
-        "symfony/phpunit-bridge": "^8.1",
+        "symfony/phpunit-bridge": "^7.4||^8.1",
         "doctrine/orm": "^3.5",
-        "symfony/messenger": "^8.1"
+        "symfony/messenger": "^7.4||^8.1"
     },
     "suggest": {
         "symfony/messenger": "Required to actually receive translation.completed — the webhook endpoint dispatches a ConsumeRemoteEventMessage."
