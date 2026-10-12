@@ -32,7 +32,7 @@
     },
     "require-dev": {
         "symfony/phpunit-bridge": "^7.4||^8.1",
-        "doctrine/orm": "^3.5",
+        "doctrine/orm": "^3.7",
         "symfony/messenger": "^7.4||^8.1"
     },
     "suggest": {
