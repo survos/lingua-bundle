@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Service;
@@ -27,12 +28,12 @@ final class LinguaRpcException extends \RuntimeException
     /** True when lingua does not know the method -- typically a server that predates it. */
     public function isMethodNotFound(): bool
     {
-        return $this->getCode() === -32601;
+        return -32601 === $this->getCode();
     }
 
     /** True when lingua rejected the key, or wants one this app has not been given. */
     public function isUnauthorized(): bool
     {
-        return $this->getCode() === -32000;
+        return -32000 === $this->getCode();
     }
 }

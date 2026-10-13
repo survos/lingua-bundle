@@ -49,6 +49,6 @@ final class TranslationUpdate
     /** Enough to write a row: without a key, a locale and text there is nothing to apply. */
     public function isUsable(): bool
     {
-        return $this->ref !== '' && $this->targetLocale !== '' && ($this->text ?? '') !== '';
+        return '' !== $this->ref && '' !== $this->targetLocale && ($this->text ?? '') !== '';
     }
 }

@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Command;
@@ -42,7 +43,8 @@ final class LinguaSyncBabelCommand
         private readonly Connection $connection,
         #[Autowire('%kernel.enabled_locales%')] private readonly array $enabledLocales = [],
         #[Autowire('%kernel.project_dir%')] private readonly string $projectDir = '.',
-    ) {}
+    ) {
+    }
 
     public function __invoke(
         SymfonyStyle $io,
@@ -88,7 +90,7 @@ final class LinguaSyncBabelCommand
         $io->title('Lingua ⇄ Babel: SYNC (push → pull → poll)');
 
         $targetLocales = $this->resolveTargets($targets);
-        if ($targetLocales === []) {
+        if ([] === $targetLocales) {
             $io->warning('No targets resolved. Pass --targets=fr,es,... or configure kernel.enabled_locales.');
         } else {
             $io->writeln('Targets: <info>'.implode(', ', $targetLocales).'</info>');
@@ -110,15 +112,16 @@ final class LinguaSyncBabelCommand
             mode: 'tr'
         );
 
-        if ($code !== Command::SUCCESS) {
+        if (Command::SUCCESS !== $code) {
             $io->warning('Push failed/aborted; pull skipped.');
+
             return $code;
         }
 
         // 2) PULL once, then optionally poll
         $attempt = 0;
-        do {
-            $attempt++;
+        while (true) {
+            ++$attempt;
 
             $io->newLine(2);
             $io->section(sprintf('Phase 2: Pull (attempt %d/%d)', $attempt, max(1, $maxPolls)));
@@ -131,8 +134,9 @@ final class LinguaSyncBabelCommand
                 limit: null
             );
 
-            if ($pullCode !== Command::SUCCESS) {
+            if (Command::SUCCESS !== $pullCode) {
                 $io->warning('Pull failed; aborting sync.');
+
                 return $pullCode;
             }
 
@@ -146,7 +150,7 @@ final class LinguaSyncBabelCommand
 
                 if ($meiliPopulate) {
                     $run = $this->runMeiliPopulate($io, $meiliPopulate, $translationThreshold);
-                    if ($run !== Command::SUCCESS) {
+                    if (Command::SUCCESS !== $run) {
                         return $run;
                     }
                 }
@@ -156,31 +160,34 @@ final class LinguaSyncBabelCommand
 
             if ($poll <= 0) {
                 $io->note('Polling disabled (--poll=0). Sync stopping after one pull.');
+
                 return Command::SUCCESS;
             }
 
             if ($attempt >= $maxPolls) {
                 $io->warning('Max polls reached; stopping.');
+
                 return Command::SUCCESS;
             }
 
             $io->writeln(sprintf('Sleeping %ds before next pull...', $poll));
             sleep($poll);
-
-        } while (true);
+        }
     }
 
     /** @return list<string> */
     private function resolveTargets(?string $targets): array
     {
-        if ($targets !== null && trim($targets) !== '') {
+        if (null !== $targets && '' !== trim($targets)) {
             $parts = preg_split('/[,\s]+/', $targets) ?: [];
             $parts = array_values(array_unique(array_filter(array_map('trim', $parts))));
+
             return $parts;
         }
 
         // If enabled_locales set, use it; otherwise return empty => "whatever is in the DB"
         $enabled = array_values(array_unique(array_filter(array_map('trim', $this->enabledLocales))));
+
         return $enabled;
     }
 
@@ -188,6 +195,7 @@ final class LinguaSyncBabelCommand
      * Compute completion per target locale from TR rows (babel's str_tr table).
      *
      * @param list<string> $targets
+     *
      * @return array<string, array{total:int, translated:int, missing:int, pct:float}>
      */
     private function computeCompletion(array $targets): array
@@ -197,13 +205,13 @@ final class LinguaSyncBabelCommand
         $textCol = BabelSchema::STR_TR_TEXT;
 
         // If no explicit targets, compute for all locales present in the table
-        if ($targets === []) {
+        if ([] === $targets) {
             $targets = array_values(array_filter(array_map('strval', $this->connection->fetchFirstColumn(
                 "SELECT DISTINCT {$localeCol} FROM {$trTable} ORDER BY {$localeCol}"
             ))));
         }
 
-        if ($targets === []) {
+        if ([] === $targets) {
             return [];
         }
 
@@ -220,11 +228,13 @@ final class LinguaSyncBabelCommand
 
         $out = [];
         foreach ($rows as $r) {
-            $loc = (string)($r['locale'] ?? '');
-            if ($loc === '') continue;
+            $loc = (string) ($r['locale'] ?? '');
+            if ('' === $loc) {
+                continue;
+            }
 
-            $total = (int)($r['total'] ?? 0);
-            $translated = (int)($r['translated'] ?? 0);
+            $total = (int) ($r['total'] ?? 0);
+            $translated = (int) ($r['translated'] ?? 0);
             $missing = max(0, $total - $translated);
             $pct = $total > 0 ? round(($translated / $total) * 100, 1) : 0.0;
 
@@ -239,13 +249,14 @@ final class LinguaSyncBabelCommand
         }
 
         ksort($out);
+
         return $out;
     }
 
     /** @param array<string, array{total:int, translated:int, missing:int, pct:float}> $stats */
     private function meetsThreshold(array $stats, float $threshold): bool
     {
-        if ($stats === []) {
+        if ([] === $stats) {
             return false;
         }
 
@@ -257,14 +268,16 @@ final class LinguaSyncBabelCommand
                 return false;
             }
         }
+
         return true;
     }
 
     /** @param array<string, array{total:int, translated:int, missing:int, pct:float}> $stats */
     private function renderCompletion(SymfonyStyle $io, array $stats): void
     {
-        if ($stats === []) {
+        if ([] === $stats) {
             $io->warning('No TR rows found to compute completion.');
+
             return;
         }
 
@@ -274,7 +287,7 @@ final class LinguaSyncBabelCommand
                 $loc,
                 number_format($s['translated']),
                 number_format($s['total']),
-                $s['pct'] . '%',
+                $s['pct'].'%',
                 number_format($s['missing']),
             ];
         }
@@ -285,21 +298,21 @@ final class LinguaSyncBabelCommand
     private function runMeiliPopulate(SymfonyStyle $io, string $cmd, ?int $threshold): int
     {
         $cmd = trim($cmd);
-        if ($cmd === '') {
+        if ('' === $cmd) {
             return Command::SUCCESS;
         }
 
         $parts = preg_split('/\s+/', $cmd) ?: [];
-        if ($threshold !== null) {
-            $parts[] = '--translation-threshold=' . (int)$threshold;
+        if (null !== $threshold) {
+            $parts[] = '--translation-threshold='.(int) $threshold;
         }
 
         $io->section('Running Meili populate');
-        $io->writeln('<info>' . implode(' ', $parts) . '</info>');
+        $io->writeln('<info>'.implode(' ', $parts).'</info>');
 
         $p = new Process($parts, $this->projectDir);
         $p->setTimeout(null);
-        $p->run(function($type, $buffer) use ($io) {
+        $p->run(function ($type, $buffer) use ($io) {
             $io->write($buffer);
         });
 

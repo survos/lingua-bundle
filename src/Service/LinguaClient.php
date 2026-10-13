@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Service;
@@ -19,7 +20,7 @@ final class LinguaClient
     // vendor copies, so a stale lingua-contracts would silently point this client at a
     // different path. Contracts carries the same values; they are checked, not shared.
     public const ROUTE_BATCH = '/batch-translate';
-    public const ROUTE_PULL  = '/babel/pull';
+    public const ROUTE_PULL = '/babel/pull';
 
     public const DEFAULT_SERVER = 'https://lingua.survos.com';
 
@@ -27,9 +28,9 @@ final class LinguaClient
     public const ROUTE_RPC = '/api/v1';
 
     public const PROTOCOL_REST = 'rest';
-    public const PROTOCOL_RPC  = 'rpc';
+    public const PROTOCOL_RPC = 'rpc';
 
-    public const METHOD_PULL  = 'pullTranslations';
+    public const METHOD_PULL = 'pullTranslations';
     public const METHOD_BATCH = 'translateBatch';
 
     /**
@@ -75,13 +76,14 @@ final class LinguaClient
          * lingua:pull remains the way to collect results.
          */
         private readonly ?string $callbackUrl = null,
-    ) {}
-
-    public string $protocol {
-        get => $this->protocolName === self::PROTOCOL_RPC ? self::PROTOCOL_RPC : self::PROTOCOL_REST;
+    ) {
     }
 
-    public bool $usesRpc { get => $this->protocol === self::PROTOCOL_RPC; }
+    public string $protocol {
+        get => self::PROTOCOL_RPC === $this->protocolName ? self::PROTOCOL_RPC : self::PROTOCOL_REST;
+    }
+
+    public bool $usesRpc { get => self::PROTOCOL_RPC === $this->protocol; }
 
     /** null/'' when LINGUA_BASE_URI is unset, so fall back rather than build relative URLs. */
     public string $baseUri { get => rtrim($this->server ?: self::DEFAULT_SERVER, '/'); }
@@ -104,8 +106,10 @@ final class LinguaClient
      * reason the write path moved -- the REST route reports a rejected payload as
      * {"status":"ok","response":{"error":...}} at HTTP 200.
      *
-     * @param  array<string,mixed> $params
+     * @param array<string,mixed> $params
+     *
      * @return array<string,mixed> the `result` member
+     *
      * @throws LinguaRpcException
      */
     public function rpc(string $method, array $params, int $itemCount = 0, ?string $locale = null): array
@@ -114,21 +118,18 @@ final class LinguaClient
         $startedAt = microtime(true);
 
         try {
-            $response = $this->http->request('POST', $this->baseUri . self::ROUTE_RPC, [
-                'json'    => ['jsonrpc' => '2.0', 'method' => $method, 'params' => $params, 'id' => '1'],
+            $response = $this->http->request('POST', $this->baseUri.self::ROUTE_RPC, [
+                'json' => ['jsonrpc' => '2.0', 'method' => $method, 'params' => $params, 'id' => '1'],
                 'headers' => $this->headers(json: true),
                 'timeout' => $this->timeout,
-                'proxy'   => $this->proxy,
+                'proxy' => $this->proxy,
             ]);
 
             $decoded = $response->toArray(false);
         } catch (\Throwable $e) {
             $this->reportError($method, $itemCount, $locale, $startedAt, $e->getMessage());
 
-            throw new LinguaRpcException(
-                sprintf('Transport error calling %s: %s', $method, $e->getMessage()),
-                previous: $e,
-            );
+            throw new LinguaRpcException(sprintf('Transport error calling %s: %s', $method, $e->getMessage()), previous: $e);
         }
 
         if (isset($decoded['error'])) {
@@ -175,9 +176,9 @@ final class LinguaClient
 
     private function report(LinguaCall $call): void
     {
-        $this->logger->info('lingua ' . $call->describe());
+        $this->logger->info('lingua '.$call->describe());
 
-        if ($this->onCall !== null) {
+        if (null !== $this->onCall) {
             ($this->onCall)($call);
         }
     }
@@ -198,12 +199,13 @@ final class LinguaClient
 
     /**
      * @param list<string> $hashes
+     *
      * @return array<string,string> map[strCode => translatedText]
      */
     public function pullBabelByHashes(array $hashes, ?string $locale = null, ?string $engine = null): array
     {
         $hashes = array_values(array_unique(array_filter(array_map('strval', $hashes))));
-        if ($hashes === []) {
+        if ([] === $hashes) {
             return [];
         }
 
@@ -215,8 +217,10 @@ final class LinguaClient
     }
 
     /**
-     * @param  list<string> $hashes
+     * @param list<string> $hashes
+     *
      * @return array<string,string>
+     *
      * @throws LinguaRpcException
      */
     private function pullViaRpc(array $hashes, ?string $locale, ?string $engine): array
@@ -242,16 +246,16 @@ final class LinguaClient
         // returned, because the return shape is shared with the REST path and callers index
         // it by hash; surfacing it properly is a caller-facing API change for another day.
         $missing = $result['missing'] ?? [];
-        if (is_array($missing) && $missing !== []) {
+        if (is_array($missing) && [] !== $missing) {
             $this->logger->debug('lingua pullTranslations: not yet translated', [
-                'count'  => count($missing),
+                'count' => count($missing),
                 'locale' => $locale,
             ]);
         }
 
         $out = [];
         foreach ($translations as $hash => $text) {
-            if (!is_string($hash) || $hash === '' || $text === null) {
+            if (!is_string($hash) || '' === $hash || null === $text) {
                 continue;
             }
             $out[$hash] = is_string($text) ? $text : (string) $text;
@@ -261,7 +265,8 @@ final class LinguaClient
     }
 
     /**
-     * @param  list<string> $hashes
+     * @param list<string> $hashes
+     *
      * @return array<string,string>
      */
     private function pullViaRest(array $hashes, ?string $locale, ?string $engine): array
@@ -286,15 +291,15 @@ final class LinguaClient
         // Back-compat: send both "hashes" and "keys"
         $payload = [
             'hashes' => $hashes,
-            'keys'   => $hashes,
+            'keys' => $hashes,
         ];
 
-        $response = $this->http->request('POST', $this->baseUri . self::ROUTE_PULL, [
-            'query'    => $query,
-            'json'     => $payload,
-            'headers'  => $this->headers(json: true),
-            'timeout'  => $this->timeout,
-            'proxy'    => $this->proxy,
+        $response = $this->http->request('POST', $this->baseUri.self::ROUTE_PULL, [
+            'query' => $query,
+            'json' => $payload,
+            'headers' => $this->headers(json: true),
+            'timeout' => $this->timeout,
+            'proxy' => $this->proxy,
         ]);
 
         $data = $response->toArray(false);
@@ -311,10 +316,10 @@ final class LinguaClient
 
         $out = [];
         foreach ($data as $k => $v) {
-            if (!is_string($k) || $k === '') {
+            if (!is_string($k) || '' === $k) {
                 continue;
             }
-            if ($v === null) {
+            if (null === $v) {
                 continue;
             }
             $out[$k] = is_string($v) ? $v : (string) $v;
@@ -336,7 +341,7 @@ final class LinguaClient
     /** @param list<string> $texts */
     public static function textToCodes(array $texts, string $target): array
     {
-        return array_map(static fn(string $s) => HashUtil::calcSourceKey($s, $target), $texts);
+        return array_map(static fn (string $s) => HashUtil::calcSourceKey($s, $target), $texts);
     }
 
     /**
@@ -356,15 +361,14 @@ final class LinguaClient
         }
 
         $params = [
-            'timeout'  => $this->timeout,
-            'proxy'    => $this->proxy,
-            'headers'  => $this->headers(json: true),
-            'json'     => $payload,
+            'timeout' => $this->timeout,
+            'proxy' => $this->proxy,
+            'headers' => $this->headers(json: true),
+            'json' => $payload,
         ];
 
         // Local short-circuit: call route handler in-process so you get real PHP stack traces.
-        if ($this->isLocalSubRequest($request))
-        {
+        if ($this->isLocalSubRequest($request)) {
             $sub = HttpRequest::create(
                 self::ROUTE_BATCH,
                 'POST',
@@ -373,23 +377,25 @@ final class LinguaClient
             );
 
             $response = $this->httpKernel->handle($sub, HttpKernelInterface::SUB_REQUEST);
-            $status   = $response->getStatusCode();
-            $content  = $response->getContent();
-            if ($content === false) {
+            $status = $response->getStatusCode();
+            $content = $response->getContent();
+            if (false === $content) {
                 $content = '';
             }
 
             try {
                 $decoded = json_decode($content, true, flags: JSON_THROW_ON_ERROR);
+
                 return is_array($decoded)
                     ? $decoded
                     : ['status' => 'error', 'error' => 'Non-JSON response from server', 'http_status' => $status];
             } catch (\Throwable $e) {
                 $this->logger->error('LinguaClient sub-request returned non-JSON', [
                     'status' => $status,
-                    'error'  => $e->getMessage(),
-                    'body'   => $content,
+                    'error' => $e->getMessage(),
+                    'body' => $content,
                 ]);
+
                 return ['status' => 'error', 'error' => 'Non-JSON response from server', 'http_status' => $status];
             }
         }
@@ -407,9 +413,9 @@ final class LinguaClient
         $startedAt = microtime(true);
 
         try {
-            $response = $this->http->request('POST', $this->baseUri . self::ROUTE_BATCH, $params);
-            $status   = $response->getStatusCode();
-            $content  = $response->getContent(false);
+            $response = $this->http->request('POST', $this->baseUri.self::ROUTE_BATCH, $params);
+            $status = $response->getStatusCode();
+            $content = $response->getContent(false);
 
             $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
             if (is_array($decoded)) {
@@ -428,8 +434,9 @@ final class LinguaClient
             if (!is_array($decoded)) {
                 $this->logger->error('LinguaClient non-JSON response', [
                     'status' => $status,
-                    'body'   => $content,
+                    'body' => $content,
                 ]);
+
                 return ['status' => 'error', 'error' => 'Non-JSON response from server', 'http_status' => $status, 'body' => $content];
             }
 
@@ -440,13 +447,13 @@ final class LinguaClient
 
             $this->logger->error('LinguaClient HTTP exception', [
                 'exception' => $e::class,
-                'message'   => $e->getMessage(),
-                'url'       => $this->baseUri . self::ROUTE_BATCH,
+                'message' => $e->getMessage(),
+                'url' => $this->baseUri.self::ROUTE_BATCH,
             ]);
 
             return [
                 'status' => 'error',
-                'error'  => $e->getMessage(),
+                'error' => $e->getMessage(),
                 'exception' => $e::class,
             ];
         }
@@ -464,7 +471,7 @@ final class LinguaClient
             transport: $transport
         );
 
-        $raw  = $this->requestBatch($req);
+        $raw = $this->requestBatch($req);
         $resp = (isset($raw['response']) && is_array($raw['response'])) ? $raw['response'] : $raw;
 
         $items = $resp['items'] ?? null;
@@ -473,19 +480,19 @@ final class LinguaClient
         }
 
         return [
-            'hash'   => HashUtil::calcSourceKey($text, $to),
+            'hash' => HashUtil::calcSourceKey($text, $to),
             'source' => $from ?? 'auto',
             'target' => $to,
-            'text'   => $text,
+            'text' => $text,
             'engine' => $engine,
             'cached' => false,
-            'meta'   => [],
+            'meta' => [],
         ];
     }
 
     private function isLocalSubRequest(?Request $request): bool
     {
-        return $request !== null && parse_url($this->baseUri, PHP_URL_HOST) === $request->getHost();
+        return null !== $request && parse_url($this->baseUri, PHP_URL_HOST) === $request->getHost();
     }
 
     /**
@@ -501,13 +508,14 @@ final class LinguaClient
      * 200 and a caller that only checked `status` treated it as success.
      *
      * @return array<string,mixed>
+     *
      * @throws LinguaRpcException
      */
     private function requestBatchViaRpc(BatchRequest $req): array
     {
         $params = array_filter(
             $this->batchRequestPayload($req),
-            static fn(mixed $v): bool => $v !== null,
+            static fn (mixed $v): bool => null !== $v,
         );
 
         $result = $this->rpc(
@@ -523,13 +531,13 @@ final class LinguaClient
     private function batchRequestPayload(BatchRequest $req): array
     {
         $payload = [
-            'source'           => $req->source,
-            'target'           => $req->target,
-            'texts'            => $req->texts,
-            'engine'           => $req->engine,
+            'source' => $req->source,
+            'target' => $req->target,
+            'texts' => $req->texts,
+            'engine' => $req->engine,
             'insertNewStrings' => $req->insertNewStrings,
-            'forceDispatch'    => $req->forceDispatch,
-            'transport'        => $req->transport,
+            'forceDispatch' => $req->forceDispatch,
+            'transport' => $req->transport,
         ];
 
         // Ask to be TOLD when these finish instead of polling for them. Falls back to the
@@ -542,7 +550,7 @@ final class LinguaClient
         // type error — and an older lingua that predates these fields ignores absent keys but
         // would reject unexpected nulls.
         $callbackUrl = $req->callbackUrl ?: $this->callbackUrl;
-        if ($req->refs !== [] && ($callbackUrl ?? '') !== '') {
+        if ([] !== $req->refs && ($callbackUrl ?? '') !== '') {
             $payload['callbackUrl'] = $callbackUrl;
             $payload['refs'] = $req->refs;
         }
@@ -557,9 +565,10 @@ final class LinguaClient
             $h['Content-Type'] = 'application/json';
         }
         if ($this->apiToken) {
-            $h['X-Api-Key']     = $this->apiToken;
-            $h['Authorization'] = 'Bearer ' . $this->apiToken;
+            $h['X-Api-Key'] = $this->apiToken;
+            $h['Authorization'] = 'Bearer '.$this->apiToken;
         }
+
         return $h;
     }
 }

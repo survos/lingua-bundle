@@ -1,27 +1,26 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Survos\LinguaBundle\Service;
 
 class LinguaService
 {
-	private array $config;
+    private array $config;
 
+    public function __construct(array $config = [])
+    {
+        $this->config = $config;
+    }
 
-	public function __construct(array $config = [])
-	{
-		$this->config = $config;
-	}
+    public function getApiKey(): ?string
+    {
+        return $this->config['api_key'] ?? null;
+    }
 
-
-	public function getApiKey(): ?string
-	{
-		return $this->config['api_key'] ?? null;
-	}
-
-
-	public function process(): string
-	{
-		// Implement your service logic here
-		return 'Processing with lingua service';
-	}
+    public function process(): string
+    {
+        // Implement your service logic here
+        return 'Processing with lingua service';
+    }
 }

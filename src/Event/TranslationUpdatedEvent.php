@@ -55,7 +55,7 @@ final class TranslationUpdatedEvent
     public function refs(): array
     {
         return array_values(array_map(
-            static fn(TranslationUpdate $u): string => $u->ref,
+            static fn (TranslationUpdate $u): string => $u->ref,
             $this->applied,
         ));
     }

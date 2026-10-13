@@ -11,7 +11,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand('lingua:harvest:messages', 'Harvest |trans keys used in templates into babel Str storage, one context per domain.')]
 final class LinguaHarvestMessagesCommand
 {
-    public function __construct(private readonly LinguaHarvestCommand $harvester) {}
+    public function __construct(private readonly LinguaHarvestCommand $harvester)
+    {
+    }
 
     public function __invoke(
         SymfonyStyle $io,

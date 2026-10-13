@@ -40,7 +40,7 @@ final class TranslationRemoteEventConsumer implements ConsumerInterface
         }
 
         $this->applier->applyBatch(array_map(
-            static fn(array $row): TranslationUpdate => TranslationUpdate::fromWebhook($row),
+            static fn (array $row): TranslationUpdate => TranslationUpdate::fromWebhook($row),
             array_values(array_filter($rows, 'is_array')),
         ));
     }

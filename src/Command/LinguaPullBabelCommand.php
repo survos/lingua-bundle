@@ -1,10 +1,10 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
-use LogicException;
 use Survos\BabelBundle\Entity\Str as BabelStr;
 use Survos\BabelBundle\Entity\StrTranslation as BabelStrTranslation;
 use Survos\Lingua\Core\Identity\HashUtil;
@@ -28,7 +28,8 @@ final class LinguaPullBabelCommand
         private readonly EntityManagerInterface $em,
         private readonly LinguaClient $linguaClient,
         #[Autowire('%kernel.enabled_locales%')] private array $enabledLocales = [],
-    ) {}
+    ) {
+    }
 
     public function __invoke(
         SymfonyStyle $io,
@@ -52,7 +53,7 @@ final class LinguaPullBabelCommand
             $io->writeln('Provider engine: <info>'.$engine.'</info>');
         }
         $io->writeln('Batch: <info>'.$batch.'</info>');
-        if ($limit !== null) {
+        if (null !== $limit) {
             $io->writeln('Global limit: <info>'.$limit.'</info>');
         }
 
@@ -66,18 +67,19 @@ final class LinguaPullBabelCommand
             ->andWhere('(t.text IS NULL OR t.text = \'\')')
             ->orderBy('t.strCode', 'ASC');
 
-        if ($targetLocales !== []) {
+        if ([] !== $targetLocales) {
             $qb->andWhere('t.targetLocale IN (:locales)')
                 ->setParameter('locales', $targetLocales);
         }
 
-        if ($limit !== null) {
+        if (null !== $limit) {
             $qb->setMaxResults($limit);
         }
 
         $rows = $qb->getQuery()->getArrayResult();
-        if ($rows === []) {
+        if ([] === $rows) {
             $io->success('No untranslated rows match filters.');
+
             return Command::SUCCESS;
         }
 
@@ -88,7 +90,7 @@ final class LinguaPullBabelCommand
         // not by our local str_code -- so resolve each code's source text/locale and
         // compute the same hash the server used when the source was first pushed.
         $codes = array_values(array_unique(array_filter(array_map(
-            static fn(array $r): string => (string) ($r['str_code'] ?? ''),
+            static fn (array $r): string => (string) ($r['str_code'] ?? ''),
             $rows
         ))));
         $strRows = $this->em->createQueryBuilder()
@@ -112,17 +114,18 @@ final class LinguaPullBabelCommand
         foreach ($rows as $r) {
             $key = (string) ($r['str_code'] ?? '');
             $loc = (string) ($r['locale'] ?? '');
-            if ($key === '' || !isset($sourceByCode[$key])) {
+            if ('' === $key || !isset($sourceByCode[$key])) {
                 continue;
             }
-            $loc = $loc !== '' ? HashUtil::normalizeLocale($loc) : '';
+            $loc = '' !== $loc ? HashUtil::normalizeLocale($loc) : '';
             $hash = HashUtil::calcSourceKey($sourceByCode[$key]['source'], $sourceByCode[$key]['sourceLocale']);
             $codeByHash[$hash] = $key;
             $byLocale[$noLocaleGrouping ? '' : $loc][] = $hash;
         }
 
-        if ($byLocale === []) {
+        if ([] === $byLocale) {
             $io->success('No untranslated rows after normalization.');
+
             return Command::SUCCESS;
         }
 
@@ -131,14 +134,14 @@ final class LinguaPullBabelCommand
         // seconds is indistinguishable from a hung run. %message% carries the JSON-RPC method
         // name (pullTranslations) or the REST route, plus the locale and the counts.
         $progress = new ProgressBar($io, $total);
-        $progress->setFormat(" %current%/%max% [%bar%] %percent:3s%%  %message%");
+        $progress->setFormat(' %current%/%max% [%bar%] %percent:3s%%  %message%');
         $progress->setMessage(sprintf('via %s', strtoupper($this->linguaClient->protocol)));
 
         $this->linguaClient->onCall = static function (LinguaCall $call) use ($progress, $io): void {
             $progress->setMessage($call->describe());
             $progress->display();
 
-            if ($call->phase === LinguaCall::PHASE_ERROR) {
+            if (LinguaCall::PHASE_ERROR === $call->phase) {
                 $progress->clear();
                 $io->warning($call->describe());
                 $progress->display();
@@ -152,19 +155,19 @@ final class LinguaPullBabelCommand
 
         foreach ($byLocale as $locale => $keys) {
             $locale = trim((string) $locale);
-            $locale = $locale !== '' ? HashUtil::normalizeLocale($locale) : '';
+            $locale = '' !== $locale ? HashUtil::normalizeLocale($locale) : '';
 
             if (!$noLocaleGrouping) {
                 $io->newLine(2);
-                $io->section('Locale: ' . ($locale !== '' ? $locale : '(none)'));
+                $io->section('Locale: '.('' !== $locale ? $locale : '(none)'));
             }
 
             foreach (array_chunk($keys, $batch) as $chunk) {
-                $chunksRequested++;
+                ++$chunksRequested;
 
                 $map = $this->linguaClient->pullBabelByHashes(
                     $chunk,
-                    $locale !== '' ? $locale : null,
+                    '' !== $locale ? $locale : null,
                     $engine
                 );
 
@@ -172,7 +175,7 @@ final class LinguaPullBabelCommand
                     $io->writeln(sprintf('<comment>pull returned %d/%d</comment>', count($map), count($chunk)));
                 }
 
-                if (!is_array($map) || $map === []) {
+                if (!is_array($map) || [] === $map) {
                     $progress->advance(\count($chunk));
                     continue;
                 }
@@ -186,7 +189,7 @@ final class LinguaPullBabelCommand
                     $strCode = $codeByHash[$hash];
                     $translated = $map[$hash];
                     $translated = is_string($translated) ? $translated : (string) $translated;
-                    if ($translated === '') {
+                    if ('' === $translated) {
                         $progress->advance(1);
                         continue;
                     }
@@ -195,14 +198,14 @@ final class LinguaPullBabelCommand
                     // whichever engine actually produced this translation, not a placeholder.
                     // Skip the SET when $engine is unknown rather than clobber it with null.
                     $dql = 'UPDATE '.$trClass.' t
-                            SET t.text = :text' . ($engine !== null ? ', t.engine = :engine' : '') . '
+                            SET t.text = :text'.(null !== $engine ? ', t.engine = :engine' : '').'
                             WHERE t.strCode = :strCode AND t.targetLocale = :locale';
 
                     $q = $this->em->createQuery($dql);
                     $q->setParameter('text', $translated);
                     $q->setParameter('strCode', $strCode);
                     $q->setParameter('locale', $locale);
-                    if ($engine !== null) {
+                    if (null !== $engine) {
                         $q->setParameter('engine', $engine);
                     }
 
@@ -221,18 +224,20 @@ final class LinguaPullBabelCommand
         $progress->finish();
         $io->newLine(2);
         $io->success(sprintf('Updated translations: %d (chunks: %d)', $updated, $chunksRequested));
+
         return Command::SUCCESS;
     }
 
     private function resolveBabelTrClass(): string
     {
-        $appTr  = 'App\\Entity\\StrTranslation';
+        $appTr = 'App\\Entity\\StrTranslation';
         if (class_exists($appTr)) {
             return $appTr;
         }
         if (!class_exists(BabelStrTranslation::class)) {
-            throw new LogicException('Babel StrTranslation entity not available.');
+            throw new \LogicException('Babel StrTranslation entity not available.');
         }
+
         return BabelStrTranslation::class;
     }
 
@@ -243,18 +248,20 @@ final class LinguaPullBabelCommand
             return $appStr;
         }
         if (!class_exists(BabelStr::class)) {
-            throw new LogicException('Babel Str entity not available.');
+            throw new \LogicException('Babel Str entity not available.');
         }
+
         return BabelStr::class;
     }
 
     /** @return list<string> */
     private function parseTargets(?string $targets): array
     {
-        if ($targets === null || trim($targets) === '') {
+        if (null === $targets || '' === trim($targets)) {
             return array_values(array_unique(array_filter(array_map('trim', $this->enabledLocales))));
         }
         $parts = preg_split('/[,\s]+/', $targets) ?: [];
+
         return array_values(array_unique(array_filter(array_map('trim', $parts))));
     }
 }

@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Service;
@@ -19,18 +20,18 @@ namespace Survos\LinguaBundle\Service;
 final readonly class LinguaCall
 {
     public const PHASE_START = 'start';
-    public const PHASE_DONE  = 'done';
+    public const PHASE_DONE = 'done';
     public const PHASE_ERROR = 'error';
 
     /**
-     * @param string      $method     JSON-RPC method name, or the route for a REST call
-     * @param string      $phase      one of the PHASE_* constants
-     * @param string      $transport  'rpc' or 'rest'
-     * @param int         $itemCount  items sent (hashes, texts) -- 0 when not applicable
-     * @param ?string     $locale     the locale group this call belongs to, when there is one
-     * @param ?int        $resultCount items that came back, on PHASE_DONE
-     * @param ?float      $elapsedMs  wall time, on PHASE_DONE / PHASE_ERROR
-     * @param ?string     $error      message, on PHASE_ERROR
+     * @param string  $method      JSON-RPC method name, or the route for a REST call
+     * @param string  $phase       one of the PHASE_* constants
+     * @param string  $transport   'rpc' or 'rest'
+     * @param int     $itemCount   items sent (hashes, texts) -- 0 when not applicable
+     * @param ?string $locale      the locale group this call belongs to, when there is one
+     * @param ?int    $resultCount items that came back, on PHASE_DONE
+     * @param ?float  $elapsedMs   wall time, on PHASE_DONE / PHASE_ERROR
+     * @param ?string $error       message, on PHASE_ERROR
      */
     public function __construct(
         public string $method,
@@ -49,15 +50,15 @@ final readonly class LinguaCall
     {
         $parts = [$this->method];
 
-        if ($this->locale !== null && $this->locale !== '') {
+        if (null !== $this->locale && '' !== $this->locale) {
             $parts[] = $this->locale;
         }
 
         $parts[] = match ($this->phase) {
             self::PHASE_START => sprintf('sending %d…', $this->itemCount),
-            self::PHASE_DONE  => sprintf('%d/%d in %s', $this->resultCount ?? 0, $this->itemCount, $this->elapsed()),
+            self::PHASE_DONE => sprintf('%d/%d in %s', $this->resultCount ?? 0, $this->itemCount, $this->elapsed()),
             self::PHASE_ERROR => sprintf('FAILED after %s: %s', $this->elapsed(), $this->error ?? 'unknown error'),
-            default           => $this->phase,
+            default => $this->phase,
         };
 
         return implode(' ', $parts);
@@ -65,7 +66,7 @@ final readonly class LinguaCall
 
     private function elapsed(): string
     {
-        if ($this->elapsedMs === null) {
+        if (null === $this->elapsedMs) {
             return '?';
         }
 

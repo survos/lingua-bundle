@@ -1,11 +1,11 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Command;
 
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\ORM\EntityManagerInterface;
-use LogicException;
 use Survos\BabelBundle\Entity\Str as BabelStr;
 use Survos\BabelBundle\Entity\StrTranslation as BabelStrTranslation;
 use Survos\Lingua\Contracts\Dto\BatchRequest;
@@ -45,7 +45,8 @@ final class LinguaPushBabelCommand
         private readonly EntityManagerInterface $em,
         private readonly LinguaClient $linguaClient,
         #[Autowire('%kernel.enabled_locales%')] private readonly array $enabledLocales = [],
-    ) {}
+    ) {
+    }
 
     public function __invoke(
         SymfonyStyle $io,
@@ -69,21 +70,21 @@ final class LinguaPushBabelCommand
         bool $showServer = false,
         #[Option('Fail if any batch reports an error or zero accepted items.')]
         bool $strict = false,
-
     ): int {
         $mode = strtolower(trim($mode));
         if (!in_array($mode, ['tr', 'str'], true)) {
             $io->error('Invalid --mode. Use "tr" or "str".');
+
             return Command::INVALID;
         }
 
-        if ($enqueue && $transport === null) {
+        if ($enqueue && null === $transport) {
             $transport = 'async';
         }
 
         $targetFilter = $this->parseTargets($targets);
 
-        $io->title('Lingua PUSH: ' . ($this->linguaClient->baseUri ?? '(no baseUri)'));
+        $io->title('Lingua PUSH: '.($this->linguaClient->baseUri ?? '(no baseUri)'));
         $io->writeln(sprintf('Mode: <info>%s</info>', $mode));
         $io->writeln(sprintf('Batch: <info>%d</info>', $batch));
         if ($limit > 0) {
@@ -93,14 +94,14 @@ final class LinguaPushBabelCommand
         if ($engine) {
             $io->writeln('Engine: <info>'.$engine.'</info>');
         }
-        if ($targetFilter !== []) {
+        if ([] !== $targetFilter) {
             $io->writeln('Target filter: <info>'.implode(', ', $targetFilter).'</info>');
         }
         if ($strict) {
             $io->writeln('<comment>Strict mode: command will fail on server errors or zero acceptance.</comment>');
         }
 
-        return $mode === 'tr'
+        return 'tr' === $mode
             ? $this->pushFromTrStubs($io, $targetFilter, $engine, $batch, $limit, $transport, $force, $showServer, $strict)
             : $this->pushAllStr($io, $targetFilter, $engine, $batch, $limit, $transport, $force, $showServer, $strict);
     }
@@ -118,7 +119,7 @@ final class LinguaPushBabelCommand
         ?string $transport,
         bool $forceDispatch,
         bool $showServer,
-        bool $strict
+        bool $strict,
     ): int {
         [$strClass, $trClass] = $this->resolveBabelEntityClasses();
 
@@ -126,40 +127,40 @@ final class LinguaPushBabelCommand
         $conn = $em->getConnection();
 
         $mStr = $em->getClassMetadata($strClass);
-        $mTr  = $em->getClassMetadata($trClass);
+        $mTr = $em->getClassMetadata($trClass);
 
         $tStr = $mStr->getTableName();
-        $tTr  = $mTr->getTableName();
+        $tTr = $mTr->getTableName();
 
         $strRepo = $em->getRepository($strClass);
 
         // New schema field names
         $cStrCode = $mStr->getColumnName('code');
-        $cSource  = $mStr->getColumnName('source');
-        $cSrcLoc  = $mStr->getColumnName('sourceLocale');
+        $cSource = $mStr->getColumnName('source');
+        $cSrcLoc = $mStr->getColumnName('sourceLocale');
 
         $cTrStrCode = $mTr->getColumnName('strCode');
-        $cTrLoc     = $mTr->getColumnName('targetLocale');
-        $cTrText    = $mTr->getColumnName('text');
-        $cTrEngine  = $mTr->getColumnName('engine');
+        $cTrLoc = $mTr->getColumnName('targetLocale');
+        $cTrText = $mTr->getColumnName('text');
+        $cTrEngine = $mTr->getColumnName('engine');
 
         $pf = $conn->getDatabasePlatform();
-        $q = static fn(string $id) => $pf->quoteSingleIdentifier($id);
+        $q = static fn (string $id) => $pf->quoteSingleIdentifier($id);
 
         $where = sprintf('(%1$s IS NULL OR %1$s = \'\')', $q($cTrText));
         $params = [];
-//        $params = [
-//            'stubEngine' => self::STUB_ENGINE,
-//        ];
+        //        $params = [
+        //            'stubEngine' => self::STUB_ENGINE,
+        //        ];
         $types = [];
 
         // Only push from Babel-created stubs
-//        $where .= sprintf(' AND %s = :stubEngine', $q($cTrEngine));
+        //        $where .= sprintf(' AND %s = :stubEngine', $q($cTrEngine));
 
-        if ($targetFilter !== []) {
+        if ([] !== $targetFilter) {
             $where .= sprintf(' AND %s IN (:targets)', $q($cTrLoc));
             $params['targets'] = $targetFilter;
-            $types['targets']  = ArrayParameterType::STRING;
+            $types['targets'] = ArrayParameterType::STRING;
         }
 
         $sql = sprintf(
@@ -186,12 +187,13 @@ final class LinguaPushBabelCommand
         );
 
         if ($limit > 0) {
-            $sql .= ' LIMIT ' . (int) $limit;
+            $sql .= ' LIMIT '.(int) $limit;
         }
 
         $rows = $conn->executeQuery($sql, $params, $types)->fetchAllAssociative();
-        if ($rows === []) {
+        if ([] === $rows) {
             $io->success('No untranslated StrTranslation stubs found (nothing to push).');
+
             return Command::SUCCESS;
         }
 
@@ -201,11 +203,11 @@ final class LinguaPushBabelCommand
         // position would be the same information carried in two places waiting to drift.
         $groups = []; // [$src][$target] = list<array{0:string text, 1:string code}>
         foreach ($rows as $r) {
-            $tgt = trim((string)($r['target_locale'] ?? ''));
-            $src = trim((string)($r['source_locale'] ?? ''));
-            $txt = (string)($r['original'] ?? '');
-            $code = (string)($r['str_code'] ?? '');
-            if ($tgt === '' || $src === '' || $txt === '') {
+            $tgt = trim((string) ($r['target_locale'] ?? ''));
+            $src = trim((string) ($r['source_locale'] ?? ''));
+            $txt = (string) ($r['original'] ?? '');
+            $code = (string) ($r['str_code'] ?? '');
+            if ('' === $tgt || '' === $src || '' === $txt) {
                 continue;
             }
             $groups[$src][$tgt][] = [$txt, $code];
@@ -229,8 +231,8 @@ final class LinguaPushBabelCommand
         // headers, so a slow server and a hung one looked the same. The label is the JSON-RPC
         // method name (translateBatch) or the REST route, so it says what is being asked for.
         $this->linguaClient->onCall = static function (LinguaCall $call) use ($io): void {
-            $style = $call->phase === LinguaCall::PHASE_ERROR ? 'error' : 'comment';
-            if ($call->phase === LinguaCall::PHASE_START && !$io->isVerbose()) {
+            $style = LinguaCall::PHASE_ERROR === $call->phase ? 'error' : 'comment';
+            if (LinguaCall::PHASE_START === $call->phase && !$io->isVerbose()) {
                 return; // one line per completed call by default; both lines when -v
             }
 
@@ -241,9 +243,9 @@ final class LinguaPushBabelCommand
 
         $batches = 0;
         $totalAccepted = 0;
-        $totalQueued   = 0;
-        $totalMissing  = 0;
-        $hadError      = false;
+        $totalQueued = 0;
+        $totalMissing = 0;
+        $hadError = false;
 
         foreach ($this->sortGroupsByTargetThenSource($groups) as [$src, $tgt, $texts]) {
             $io->section(sprintf('Target %s (from %s) — %d texts', $tgt, $src, count($texts)));
@@ -263,12 +265,12 @@ final class LinguaPushBabelCommand
                     // blanks itself (a text with no ref is translated but not subscribed).
                     array_column($chunk, 1),
                 );
-                $batches++;
+                ++$batches;
 
                 $totalAccepted += $r['accepted'];
-                $totalQueued   += $r['queued'];
-                $totalMissing  += $r['missing'];
-                $hadError      = $hadError || $r['error'] !== null;
+                $totalQueued += $r['queued'];
+                $totalMissing += $r['missing'];
+                $hadError = $hadError || null !== $r['error'];
             }
         }
 
@@ -279,6 +281,7 @@ final class LinguaPushBabelCommand
                 'Push summary: batches=%d, texts=%d, accepted=%d, queued=%d, missing=%d.',
                 $batches, $totalTexts, $totalAccepted, $totalQueued, $totalMissing
             ));
+
             return Command::FAILURE;
         }
 
@@ -288,6 +291,7 @@ final class LinguaPushBabelCommand
         ));
 
         $io->writeln('Then run `lingua:pull` / `lingua:sync:*` to harvest completed translations.');
+
         return Command::SUCCESS;
     }
 
@@ -300,15 +304,16 @@ final class LinguaPushBabelCommand
         ?string $transport,
         bool $forceDispatch,
         bool $showServer,
-        bool $strict
+        bool $strict,
     ): int {
         [$strClass] = $this->resolveBabelEntityClasses();
 
-        if ($targetLocales === []) {
+        if ([] === $targetLocales) {
             $targetLocales = array_values(array_unique(array_filter(array_map('trim', $this->enabledLocales))));
         }
-        if ($targetLocales === []) {
+        if ([] === $targetLocales) {
             $io->error('No target locales resolved. Configure enabled_locales or pass --targets=...');
+
             return Command::INVALID;
         }
 
@@ -336,15 +341,15 @@ final class LinguaPushBabelCommand
         $batches = 0;
 
         $totalAccepted = 0;
-        $totalQueued   = 0;
-        $totalMissing  = 0;
+        $totalQueued = 0;
+        $totalMissing = 0;
 
         $hadError = false;
 
         foreach ($iter as $str) {
             /** @var object{source:string,sourceLocale?:string,code?:string} $str */
             $original = (string) ($str->source ?? '');
-            if ($original === '') {
+            if ('' === $original) {
                 continue;
             }
 
@@ -352,16 +357,16 @@ final class LinguaPushBabelCommand
             $textsBySrc[$srcLocale][] = $original;
             $refsBySrc[$srcLocale][] = (string) ($str->code ?? '');
             $countsBySrc[$srcLocale] = ($countsBySrc[$srcLocale] ?? 0) + 1;
-            $total++;
+            ++$total;
 
             if ($countsBySrc[$srcLocale] >= $batch) {
                 $r = $this->sendBatch($io, $srcLocale, $targetLocales, $textsBySrc[$srcLocale], $engine, $transport, $forceDispatch, $showServer, $refsBySrc[$srcLocale]);
-                $batches++;
+                ++$batches;
 
                 $totalAccepted += $r['accepted'];
-                $totalQueued   += $r['queued'];
-                $totalMissing  += $r['missing'];
-                $hadError      = $hadError || $r['error'] !== null;
+                $totalQueued += $r['queued'];
+                $totalMissing += $r['missing'];
+                $hadError = $hadError || null !== $r['error'];
 
                 $textsBySrc[$srcLocale] = [];
                 $refsBySrc[$srcLocale] = [];
@@ -370,17 +375,17 @@ final class LinguaPushBabelCommand
         }
 
         foreach ($textsBySrc as $srcLocale => $texts) {
-            if ($texts === []) {
+            if ([] === $texts) {
                 continue;
             }
 
             $r = $this->sendBatch($io, $srcLocale, $targetLocales, $texts, $engine, $transport, $forceDispatch, $showServer, $refsBySrc[$srcLocale] ?? []);
-            $batches++;
+            ++$batches;
 
             $totalAccepted += $r['accepted'];
-            $totalQueued   += $r['queued'];
-            $totalMissing  += $r['missing'];
-            $hadError      = $hadError || $r['error'] !== null;
+            $totalQueued += $r['queued'];
+            $totalMissing += $r['missing'];
+            $hadError = $hadError || null !== $r['error'];
         }
 
         $io->newLine();
@@ -389,6 +394,7 @@ final class LinguaPushBabelCommand
                 'Push summary: batches=%d, texts=%d, accepted=%d, queued=%d, missing=%d.',
                 $batches, $total, $totalAccepted, $totalQueued, $totalMissing
             ));
+
             return Command::FAILURE;
         }
 
@@ -397,6 +403,7 @@ final class LinguaPushBabelCommand
             $batches, $total, $totalAccepted, $totalQueued, $totalMissing
         ));
         $io->writeln('Then run `lingua:pull` / `lingua:sync:*` to harvest completed translations.');
+
         return Command::SUCCESS;
     }
 
@@ -408,7 +415,7 @@ final class LinguaPushBabelCommand
     private function resolveBabelEntityClasses(): array
     {
         $appStr = 'App\\Entity\\Str';
-        $appTr  = 'App\\Entity\\StrTranslation';
+        $appTr = 'App\\Entity\\StrTranslation';
 
         if (class_exists($appStr) && class_exists($appTr)) {
             return [$appStr, $appTr];
@@ -420,10 +427,11 @@ final class LinguaPushBabelCommand
     /** @return list<string> */
     private function parseTargets(?string $targets): array
     {
-        if ($targets === null || trim($targets) === '') {
+        if (null === $targets || '' === trim($targets)) {
             return [];
         }
         $parts = preg_split('/[,\s]+/', $targets) ?: [];
+
         return array_values(array_unique(array_filter(array_map('trim', $parts))));
     }
 
@@ -436,11 +444,13 @@ final class LinguaPushBabelCommand
         foreach ($groups as $byTarget) {
             $n += count($byTarget);
         }
+
         return $n;
     }
 
     /**
      * @param array<string, array<string, list<string>>> $groups
+     *
      * @return list<array{0:string,1:string,2:list<string>}>
      */
     private function sortGroupsByTargetThenSource(array $groups): array
@@ -452,9 +462,10 @@ final class LinguaPushBabelCommand
             }
         }
 
-        usort($flat, static function(array $a, array $b): int {
+        usort($flat, static function (array $a, array $b): int {
             $cmp = strcmp($a[1], $b[1]);
-            return $cmp !== 0 ? $cmp : strcmp($a[0], $b[0]);
+
+            return 0 !== $cmp ? $cmp : strcmp($a[0], $b[0]);
         });
 
         return $flat;
@@ -463,6 +474,7 @@ final class LinguaPushBabelCommand
     /**
      * @param list<string> $targets
      * @param list<string> $texts
+     *
      * @return array{accepted:int, queued:int, missing:int, error:?string}
      */
     private function sendBatch(
@@ -474,7 +486,7 @@ final class LinguaPushBabelCommand
         ?string $transport,
         bool $forceDispatch,
         bool $showServer,
-        /**
+        /*
          * Our own key per text, positionally aligned with $texts (babel `Str.code`).
          *
          * Empty means "do not subscribe" — the batch is still translated and still pullable,
@@ -486,19 +498,19 @@ final class LinguaPushBabelCommand
         array $refs = [],
     ): array {
         $count = count($texts);
-        if ($count === 0) {
+        if (0 === $count) {
             return ['accepted' => 0, 'queued' => 0, 'missing' => 0, 'error' => null];
         }
 
-//        $io->writeln('<comment>Outgoing request:</comment>');
-//        $io->writeln(json_encode([
-//            'source' => $source,
-//            'target' => $targets,
-//            'texts'  => $texts,
-//            'engine' => $engine,
-//            'transport' => $transport,
-//            'forceDispatch' => $forceDispatch,
-//        ], JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
+        //        $io->writeln('<comment>Outgoing request:</comment>');
+        //        $io->writeln(json_encode([
+        //            'source' => $source,
+        //            'target' => $targets,
+        //            'texts'  => $texts,
+        //            'engine' => $engine,
+        //            'transport' => $transport,
+        //            'forceDispatch' => $forceDispatch,
+        //        ], JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
 
         $io->writeln(sprintf(
             'Sending batch: source=<info>%s</info>, targets=<info>%s</info>, count=<info>%d</info>',
@@ -517,20 +529,20 @@ final class LinguaPushBabelCommand
         );
 
         $accepted = 0;
-        $queued   = 0;
-        $missing  = 0;
+        $queued = 0;
+        $missing = 0;
         $errorMsg = null;
 
         try {
             $raw = $this->linguaClient->requestBatch($req);
             [$resp, $top] = $this->normalizeServerResult($raw);
 
-            $queued  = $this->intish($resp['queued'] ?? $top['queued'] ?? 0);
+            $queued = $this->intish($resp['queued'] ?? $top['queued'] ?? 0);
             $missing = $this->countish($resp['missing'] ?? $top['missing'] ?? null);
             $accepted = $this->countish($resp['items'] ?? $top['items'] ?? $resp['sources'] ?? $top['sources'] ?? null);
 
             $errVal = $resp['error'] ?? $top['error'] ?? null;
-            if ($errVal !== null && $errVal !== '') {
+            if (null !== $errVal && '' !== $errVal) {
                 $errorMsg = $this->stringify($errVal);
             }
 
@@ -556,54 +568,78 @@ final class LinguaPushBabelCommand
     {
         if ($raw instanceof \JsonSerializable) {
             $resp = (array) $raw->jsonSerialize();
+
             return [$resp, $resp];
         }
         if (is_object($raw)) {
             if (method_exists($raw, 'toArray')) {
                 $resp = (array) $raw->toArray();
+
                 return [$resp, $resp];
             }
             $resp = get_object_vars($raw);
+
             return [$resp, $resp];
         }
-        if (is_string($raw) && $raw !== '') {
+        if (is_string($raw) && '' !== $raw) {
             $decoded = json_decode($raw, true);
             if (is_array($decoded)) {
                 if (isset($decoded['response']) && is_array($decoded['response'])) {
                     return [$decoded['response'], $decoded];
                 }
+
                 return [$decoded, $decoded];
             }
+
             return [[], ['raw' => $raw]];
         }
         if (is_array($raw)) {
             if (isset($raw['response']) && is_array($raw['response'])) {
                 return [$raw['response'], $raw];
             }
+
             return [$raw, $raw];
         }
+
         return [[], []];
     }
 
     private function intish(mixed $v): int
     {
-        if (is_int($v)) return $v;
-        if (is_numeric($v)) return (int) $v;
-        if (is_array($v) || $v instanceof \Countable) return (int) count($v);
+        if (is_int($v)) {
+            return $v;
+        }
+        if (is_numeric($v)) {
+            return (int) $v;
+        }
+        if (is_array($v) || $v instanceof \Countable) {
+            return (int) count($v);
+        }
+
         return 0;
     }
 
     private function countish(mixed $v): int
     {
-        if (is_int($v)) return $v;
-        if (is_array($v) || $v instanceof \Countable) return (int) count($v);
+        if (is_int($v)) {
+            return $v;
+        }
+        if (is_array($v) || $v instanceof \Countable) {
+            return (int) count($v);
+        }
+
         return 0;
     }
 
     private function stringify(mixed $v): string
     {
-        if (is_string($v)) return $v;
-        if (is_scalar($v)) return (string) $v;
+        if (is_string($v)) {
+            return $v;
+        }
+        if (is_scalar($v)) {
+            return (string) $v;
+        }
+
         return json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: get_debug_type($v);
     }
 }

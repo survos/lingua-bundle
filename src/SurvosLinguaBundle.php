@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\LinguaBundle;
@@ -9,7 +10,6 @@ use Survos\LinguaBundle\Command\LinguaHarvestMessagesCommand;
 use Survos\LinguaBundle\Command\LinguaHarvestRoutesCommand;
 use Survos\LinguaBundle\Command\LinguaPullBabelCommand;
 use Survos\LinguaBundle\Command\LinguaPushBabelCommand;
-use Survos\LinguaBundle\Command\LinguaStatusCommand;
 use Survos\LinguaBundle\Command\LinguaSyncBabelCommand;
 use Survos\LinguaBundle\Controller\LinguaController;
 use Survos\LinguaBundle\Controller\LinguaSandboxController;
@@ -18,8 +18,8 @@ use Survos\LinguaBundle\Security\LinguaKeyGuard;
 use Survos\LinguaBundle\Service\ApiPlatformDataFetcher;
 use Survos\LinguaBundle\Service\LinguaClient;
 use Survos\LinguaBundle\Service\TranslationUpdateApplier;
-use Survos\LinguaBundle\Webhook\LinguaWebhookRequestParser;
 use Survos\LinguaBundle\Twig\Extension\LinguaExtension;
+use Survos\LinguaBundle\Webhook\LinguaWebhookRequestParser;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -99,7 +99,7 @@ final class SurvosLinguaBundle extends AbstractBundle
 
         // Commands
         foreach ([LinguaDemoCommand::class, LinguaHarvestMessagesCommand::class, LinguaHarvestRoutesCommand::class,
-                     LinguaPushBabelCommand::class, LinguaPullBabelCommand::class, LinguaSyncBabelCommand::class] as $commandClass) {
+            LinguaPushBabelCommand::class, LinguaPullBabelCommand::class, LinguaSyncBabelCommand::class] as $commandClass) {
             $builder->register($commandClass)
                 ->setAutowired(true)
                 ->setAutoconfigured(true)
@@ -129,13 +129,13 @@ final class SurvosLinguaBundle extends AbstractBundle
         $definition->rootNode()
             ->children()
                 ->scalarNode('server')
-                    ->info('Base URI of the lingua server. Empty falls back to ' . LinguaClient::DEFAULT_SERVER . '.')
+                    ->info('Base URI of the lingua server. Empty falls back to '.LinguaClient::DEFAULT_SERVER.'.')
                     ->defaultValue('%env(default::LINGUA_BASE_URI)%')
                 ->end()
                 ->scalarNode('api_key')
                     ->info('Shared secret for the lingua API -- NOT babel/LibreTranslate, which needs no key. '
-                        . 'The same value belongs on lingua itself and on every app that calls it: clients send '
-                        . 'it, lingua validates it. Empty disables the check (current behaviour).')
+                        .'The same value belongs on lingua itself and on every app that calls it: clients send '
+                        .'it, lingua validates it. Empty disables the check (current behaviour).')
                     ->defaultValue('%env(default::LINGUA_API_KEY)%')
                 ->end()
                 // scalarNode, not enumNode: an env placeholder is still an unresolved string
@@ -144,10 +144,10 @@ final class SurvosLinguaBundle extends AbstractBundle
                 // or mistyped var degrades to today's behaviour rather than failing the build.
                 ->scalarNode('protocol')
                     ->info('"rest" (default) uses POST /batch-translate and /babel/pull. "rpc" uses '
-                        . 'JSON-RPC at POST /api/v1, which reports rejected payloads as real errors '
-                        . 'instead of {"status":"ok","response":{"error":...}} at HTTP 200. Requires a '
-                        . 'lingua deployed with /api/v1; not auto-detected, because probing costs a '
-                        . 'round trip and a silent fallback would hide a misconfigured server.')
+                        .'JSON-RPC at POST /api/v1, which reports rejected payloads as real errors '
+                        .'instead of {"status":"ok","response":{"error":...}} at HTTP 200. Requires a '
+                        .'lingua deployed with /api/v1; not auto-detected, because probing costs a '
+                        .'round trip and a silent fallback would hide a misconfigured server.')
                     ->defaultValue('%env(default::LINGUA_PROTOCOL)%')
                 ->end()
                 ->integerNode('timeout')->defaultValue(10)->end()
@@ -157,9 +157,9 @@ final class SurvosLinguaBundle extends AbstractBundle
                 ->end()
                 ->scalarNode('callback_url')
                     ->info('Absolute URL of THIS app\'s /webhook/lingua endpoint, e.g. '
-                        . 'https://zm.wip/webhook/lingua. Sent with every push so the server '
-                        . 'announces translations instead of making us poll with lingua:pull. '
-                        . 'Empty keeps the polling behaviour.')
+                        .'https://zm.wip/webhook/lingua. Sent with every push so the server '
+                        .'announces translations instead of making us poll with lingua:pull. '
+                        .'Empty keeps the polling behaviour.')
                     ->defaultValue('%env(default::LINGUA_CALLBACK_URL)%')
                 ->end()
                 // NOTE: `webhook_key` was removed. It configured LinguaWebhookController's

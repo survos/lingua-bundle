@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Tests\Security;
@@ -23,7 +24,7 @@ final class LinguaKeyGuardTest extends TestCase
         $server = [];
         foreach ($headers as $name => $value) {
             // Request::create() expects HTTP_ prefixed, underscored, upper-cased header names.
-            $server['HTTP_' . strtoupper(str_replace('-', '_', $name))] = $value;
+            $server['HTTP_'.strtoupper(str_replace('-', '_', $name))] = $value;
         }
 
         return Request::create('/babel/pull', 'POST', server: $server);
@@ -61,14 +62,14 @@ final class LinguaKeyGuardTest extends TestCase
     {
         $guard = new LinguaKeyGuard(self::KEY);
 
-        self::assertTrue($guard->check($this->request(['Authorization' => 'Bearer ' . self::KEY])));
+        self::assertTrue($guard->check($this->request(['Authorization' => 'Bearer '.self::KEY])));
     }
 
     public function testBearerSchemeIsMatchedCaseInsensitively(): void
     {
         $guard = new LinguaKeyGuard(self::KEY);
 
-        self::assertTrue($guard->check($this->request(['Authorization' => 'bearer ' . self::KEY])));
+        self::assertTrue($guard->check($this->request(['Authorization' => 'bearer '.self::KEY])));
     }
 
     public function testXApiKeyWinsOverAuthorizationWhenBothArePresent(): void
@@ -127,6 +128,6 @@ final class LinguaKeyGuardTest extends TestCase
     {
         $guard = new LinguaKeyGuard(self::KEY);
 
-        self::assertNull($guard->presentedKey($this->request(['Authorization' => 'Basic ' . self::KEY])));
+        self::assertNull($guard->presentedKey($this->request(['Authorization' => 'Basic '.self::KEY])));
     }
 }

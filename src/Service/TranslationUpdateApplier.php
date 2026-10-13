@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Survos\LinguaBundle\Service;
 
 use Doctrine\ORM\EntityManagerInterface;
-use LogicException;
 use Psr\Log\LoggerInterface;
 use Survos\BabelBundle\Entity\StrTranslation as BabelStrTranslation;
 use Survos\LinguaBundle\Dto\TranslationUpdate;
@@ -64,11 +63,11 @@ final class TranslationUpdateApplier
 
         foreach ($updates as $update) {
             if (!$update->isUsable()) {
-                $skipped++;
+                ++$skipped;
                 continue;
             }
 
-            $applied++;
+            ++$applied;
 
             // Selected WITHOUT engine, matching lingua:pull. `engine` records which provider
             // produced the text, so it is an OUTPUT of translation, not part of the row's
@@ -79,13 +78,13 @@ final class TranslationUpdateApplier
                 'targetLocale' => $update->targetLocale,
             ]);
 
-            if ($row === null) {
+            if (null === $row) {
                 $this->logger->info('translation update: no local row for {ref}/{locale}, ignoring', [
                     'ref' => $update->ref,
                     'locale' => $update->targetLocale,
                 ]);
-                $skipped++;
-                $applied--;
+                ++$skipped;
+                --$applied;
                 continue;
             }
 
@@ -97,7 +96,7 @@ final class TranslationUpdateApplier
             }
 
             // Only when lingua told us — never overwrite a recorded provider with null.
-            if ($update->engine !== null && $row->engine !== $update->engine) {
+            if (null !== $update->engine && $row->engine !== $update->engine) {
                 $row->engine = $update->engine;
                 $changed = true;
             }
@@ -109,13 +108,13 @@ final class TranslationUpdateApplier
             }
         }
 
-        if ($changedUpdates !== []) {
+        if ([] !== $changedUpdates) {
             $this->em->flush();
 
             $this->logger->info('translation update: {changed} row(s) written across {locales} locale(s)', [
                 'changed' => \count($changedUpdates),
                 'locales' => \count(array_unique(array_map(
-                    static fn(TranslationUpdate $u): string => $u->targetLocale,
+                    static fn (TranslationUpdate $u): string => $u->targetLocale,
                     $changedUpdates,
                 ))),
             ]);
@@ -142,7 +141,7 @@ final class TranslationUpdateApplier
         }
 
         if (!class_exists(BabelStrTranslation::class)) {
-            throw new LogicException('Babel StrTranslation entity not available.');
+            throw new \LogicException('Babel StrTranslation entity not available.');
         }
 
         return BabelStrTranslation::class;

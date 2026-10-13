@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Security;
@@ -60,7 +61,7 @@ final readonly class LinguaKeyGuard
 
         // hash_equals rejects null/'' as well, but only after a constant-time comparison
         // against a real string, so the empty case is answered first and explicitly.
-        if ($presented === null || $presented === '') {
+        if (null === $presented || '' === $presented) {
             return false;
         }
 
@@ -71,12 +72,12 @@ final readonly class LinguaKeyGuard
     public function presentedKey(Request $request): ?string
     {
         $key = $request->headers->get(self::HEADER);
-        if ($key !== null && $key !== '') {
+        if (null !== $key && '' !== $key) {
             return $key;
         }
 
         $authorization = (string) $request->headers->get('Authorization', '');
-        if (stripos($authorization, 'Bearer ') === 0) {
+        if (0 === stripos($authorization, 'Bearer ')) {
             return trim(substr($authorization, 7)) ?: null;
         }
 

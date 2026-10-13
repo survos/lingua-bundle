@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\LinguaBundle\Command;
@@ -67,7 +68,7 @@ final class LinguaHarvestCommand
         SymfonyStyle $io,
         ?string $domains = null,
     ): int {
-        $allowedDomains = $domains !== null
+        $allowedDomains = null !== $domains
             ? array_values(array_filter(array_map('trim', explode(',', $domains))))
             : self::DEFAULT_DOMAINS;
 
@@ -79,7 +80,7 @@ final class LinguaHarvestCommand
         }
 
         $this->extractor->setPrefix('');
-        $this->extractor->extract($this->projectDir . '/templates', $catalogue);
+        $this->extractor->extract($this->projectDir.'/templates', $catalogue);
 
         [$created, $updated, $unchanged] = [0, 0, 0];
         $newKeys = 0;
@@ -93,15 +94,15 @@ final class LinguaHarvestCommand
                 $isNew = !$existing->defines($key, $domain);
                 $text = $isNew ? $extractedText : $existing->get($key, $domain);
                 if ($isNew) {
-                    $newKeys++;
+                    ++$newKeys;
                 }
 
                 // Str.code is VARCHAR(64) but |trans keys can be arbitrarily long (some
                 // apps use full English sentences as msgids) -- hash long ones and keep
                 // the real key in meta so BabelTranslationLoader can reconstruct it.
-                $code = $domain . ':' . $key;
+                $code = $domain.':'.$key;
                 if (\strlen($code) > 64) {
-                    $code = $domain . ':' . hash('xxh3', $key);
+                    $code = $domain.':'.hash('xxh3', $key);
                 }
                 [$created, $updated, $unchanged] = $this->upsertStr($code, $domain, $text, $created, $updated, $unchanged, $key);
             }
@@ -124,7 +125,7 @@ final class LinguaHarvestCommand
     private function upsertStr(string $code, string $context, string $source, int $created, int $updated, int $unchanged, ?string $realKey = null): array
     {
         $repo = $this->em->getRepository(Str::class);
-        $meta = $realKey !== null ? ['key' => $realKey] : [];
+        $meta = null !== $realKey ? ['key' => $realKey] : [];
 
         $str = $repo->findOneBy(['code' => $code]);
         if (!$str) {
@@ -135,13 +136,13 @@ final class LinguaHarvestCommand
             $str->source = $source;
             $str->meta = $meta;
             $this->em->persist($str);
-            $created++;
+            ++$created;
         } elseif ($str->source !== $source) {
             $str->source = $source;
             $str->meta = $meta;
-            $updated++;
+            ++$updated;
         } else {
-            $unchanged++;
+            ++$unchanged;
         }
 
         return [$created, $updated, $unchanged];

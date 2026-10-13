@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Survos\LinguaBundle\Tests;
 
 use PHPUnit\Framework\TestCase;
@@ -9,9 +11,9 @@ use Survos\LinguaBundle\SurvosLinguaBundle;
 // real one just above. Every run fatalled on the missing class.
 class SurvosLinguaBundleTest extends TestCase
 {
-	public function testBundleExists(): void
-	{
-		$bundle = new SurvosLinguaBundle();
-		$this->assertInstanceOf(SurvosLinguaBundle::class, $bundle);
-	}
+    public function testBundleExists(): void
+    {
+        $bundle = new SurvosLinguaBundle();
+        $this->assertInstanceOf(SurvosLinguaBundle::class, $bundle);
+    }
 }
