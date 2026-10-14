@@ -20,7 +20,7 @@ class LinguaController extends AbstractController
     #[Route('/', name: 'index')]
     public function index(): Response
     {
-        return $this->render('@SurvosLinguaBundle/lingua/index.html.twig', [
+        return $this->render('@SurvosLingua/lingua/index.html.twig', [
             'bundle_name' => 'SurvosLinguaBundle',
         ]);
     }
