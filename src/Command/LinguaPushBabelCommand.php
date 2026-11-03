@@ -322,7 +322,7 @@ final class LinguaPushBabelCommand
         $qb = $this->em->createQueryBuilder()
             ->select('s')
             ->from($strClass, 's')
-            ->orderBy('s.code', 'ASC');
+            ->orderBy('s.code');
 
         if ($limit > 0) {
             $qb->setMaxResults($limit);

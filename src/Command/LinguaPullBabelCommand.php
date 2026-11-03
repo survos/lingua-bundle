@@ -65,7 +65,7 @@ final class LinguaPullBabelCommand
             ->select('t.strCode AS str_code, t.targetLocale AS locale')
             ->from($trClass, 't')
             ->andWhere('(t.text IS NULL OR t.text = \'\')')
-            ->orderBy('t.strCode', 'ASC');
+            ->orderBy('t.strCode');
 
         if ([] !== $targetLocales) {
             $qb->andWhere('t.targetLocale IN (:locales)')
