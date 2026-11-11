@@ -62,6 +62,11 @@ final class SurvosLinguaBundle extends AbstractBundle
                 ->setPublic(true);
         }
 
+        // Menu integration is optional for CLI/API-only consumers.
+        if (class_exists(\Survos\MenuBundle\MenuSlot::class)) {
+            $builder->autowire(Menu\LinguaMenuListener::class)->setAutoconfigured(true);
+        }
+
         // Controllers
         foreach ([LinguaController::class, LinguaSandboxController::class] as $controllerClass) {
             $builder->autowire($controllerClass)

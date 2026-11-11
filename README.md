@@ -106,3 +106,11 @@ Run the test suite:
 ## License
 
 This bundle is released under the MIT license. See the [LICENSE](LICENSE) file for details.
+
+### Shared admin navigation
+
+When menu-bundle is installed, Lingua contributes its available Overview and
+Translation sandbox routes to `ADMIN_NAVBAR_MENU`. Tabler and EZ render the
+same menu event; no application-specific listener is required. CLI/API-only
+consumers do not need menu-bundle. Menu visibility is controlled by the layout;
+it does not replace route authorization.
